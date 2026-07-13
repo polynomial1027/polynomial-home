@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/
+
+# 环境变量和机密信息
+.env
+.env.*
+
+# 日志
+*.log
+logs/
+
+# 临时文件和备份
+*.tmp
+*.bak
+*~

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Polynomial 的个人服务器主页，记录项目、实验与持续学习。">
+  <meta name="theme-color" content="#061019">
+  <title>Polynomial Server</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script src="assets/js/main.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Polynomial Server 首页">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>polynomial</span>
+    </a>
+    <button class="menu-toggle" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="main-nav">
+      <span></span><span></span>
+    </button>
+    <nav class="nav" id="main-nav" aria-label="主导航">
+      <a href="#projects">项目</a><a href="#services">服务</a><a href="#about">关于</a><a href="#contact">联系</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero section-shell" id="top">
+      <div class="orbit" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div class="hero-copy reveal visible">
+        <div class="eyebrow"><span class="status-dot"></span>主页服务在线 <span class="divider"></span> SELF-HOSTED</div>
+        <h1>Polynomial<br><span>Server</span></h1>
+        <p>一台属于自己的服务器，承载项目、实验与持续学习。</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#projects">探索项目 <span>↗</span></a>
+          <a class="button button-secondary" href="#services">查看服务 <span>↓</span></a>
+        </div>
+      </div>
+
+      <aside class="status-panel reveal visible" aria-label="服务器主页状态">
+        <div class="panel-head"><span><i class="status-dot"></i> 运行正常</span><b>LIVE</b></div>
+        <div class="clock-card">
+          <small>服务器本地时间</small><strong id="server-clock">--:--:--</strong><span>中国标准时间（UTC+8）</span>
+        </div>
+        <dl class="status-list">
+          <div><dt>Web</dt><dd><span class="mini-dot"></span> Nginx online</dd></div>
+          <div><dt>Access</dt><dd>Tailscale / SSH</dd></div>
+          <div><dt>Platform</dt><dd>Ubuntu Server</dd></div>
+        </dl>
+        <p class="panel-note">静态主页不读取主机敏感指标</p>
+      </aside>
+
+      <div class="hero-strip">
+        <div><span>01</span><strong>项目驱动</strong><small>垃圾内容永不枯竭</small></div>
+        <div><span>02</span><strong>稳定可靠</strong><small>即吃内存又烧流量</small></div>
+        <div><span>03</span><strong>安全可控</strong><small>随时随地删库跑路</small></div>
+      </div>
+    </section>
+
+    <section class="content-section section-shell" id="projects">
+      <div class="section-heading">
+        <div><span class="section-index">01 / PROJECTS</span><h2>正在构建的事</h2></div>
+        <p>大份！震撼美味！持续出餐进行中</p>
+      </div>
+      <div class="project-grid">
+        <a
+          class="project-card reveal"
+          href="https://github.com/polynomial1027/tank_ai"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <div class="card-top">
+            <span>01</span>
+            <small>AI / GAME</small>
+          </div>
+
+          <div>
+            <h3>Tank AI</h3>
+            <p>面向坦克对战环境的强化学习实验，持续迭代训练策略与可视化工具。</p>
+          </div>
+
+          <div class="card-foot">
+            <span>Python · PyTorch</span>
+            <b aria-hidden="true">↗</b>
+          </div>
+        </a>
+        <a
+          class="project-card reveal"
+          href="https://github.com/polynomial1027/noobs_project"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <div class="card-top">
+            <span>02</span>
+            <small>COMPUTER VISION</small>
+          </div>
+
+          <div>
+            <h3>Noobs Project</h3>
+            <p>把手势识别、小游戏与机器学习练习收进同一个开放实验场。</p>
+          </div>
+
+          <div class="card-foot">
+            <span>OpenCV · MediaPipe</span>
+            <b aria-hidden="true">↗</b>
+          </div>
+        </a>
+        <a
+          class="project-card reveal"
+          href="https://ys.mihoyo.com/?utm_source=yuanshen_web"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <div class="card-top">
+            <span>03</span>
+            <small>KNOWLEDGE</small>
+          </div>
+
+          <div>
+            <h3>Lab Notes</h3>
+            <p>记录服务器配置、部署过程、踩坑经验，以及那些值得反复查阅的技术笔记。</p>
+          </div>
+
+          <div class="card-foot">
+            <span>Notes · Experiments</span>
+            <b aria-hidden="true">↗</b>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <section class="content-section section-shell" id="services">
+      <div class="section-heading">
+        <div><span class="section-index">02 / SERVICES</span><h2>服务与基础设施</h2></div>
+        <p>保持架构简单、边界清晰：公网主页轻量开放，管理入口留在可信网络中。</p>
+      </div>
+      <div class="service-list">
+        <div class="service-row reveal"><span>01</span><strong>Web gateway</strong><p>Nginx</p><b>在线</b></div>
+        <div class="service-row reveal"><span>02</span><strong>Secure access</strong><p>Tailscale + SSH</p><b>私有</b></div>
+        <div class="service-row reveal"><span>03</span><strong>Host system</strong><p>Ubuntu Server</p><b>运行中</b></div>
+      </div>
+    </section>
+
+    <section class="about section-shell" id="about">
+      <span class="section-index">03 / ABOUT</span>
+      <div class="about-grid">
+        <h2>代码为炬，挣脱桎梏<br>奔赴人权平等</h2>
+        <div><p>冰冷的服务器机柜，承载的是<strong>滚烫的抗争与觉醒</strong>；一行行代码，书写的是<strong>被漠视已久的尊严与公平</strong>。由<strong>黑奴</strong>亲手搭建的网络天地中，没有肤色的尊卑<strong>(?)</strong>，没有出身的贵贱<strong>(?)</strong>，没有压迫与奴役<strong>(?)</strong>，唯有平等的联结、自由的发声与公正的归属。他们用智慧证明，出身从不是禁锢人生的枷锁，每一个生命都拥有思考、创造、奋进的天赋能力，每一个人都理应享有与生俱来、不可剥夺的人权——平等生存、自由逐梦、被尊重、被善待的权利。</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer section-shell" id="contact">
+    <div><span class="section-index">04 / CONTACT</span><h2>保持连接。</h2></div>
+    <!-- 部署前把下面的邮箱替换成你自己的地址 -->
+    <a href="https://www.yuanshen.com/#/">Dxren0618@outlook.com <span>↗</span></a>
+    <div class="footer-bottom"><span>© <span id="current-year">2026</span> polynomial</span><span>Powered by Ubuntu · Nginx · Curiosity</span><a href="#top">回到顶部 ↑</a></div>
+  </footer>
+</body>
+</html>
