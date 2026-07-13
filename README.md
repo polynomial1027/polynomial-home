@@ -1,37 +1,99 @@
-# Polynomial Server Home
+# Polynomial Server Home 2.0
 
-一个无需 Node.js、数据库或第三方 CDN 的纯静态服务器主页。
+完整主页包含：首页、项目页、小游戏菜单、账号登录、管理员分配账号、登录后实时聊天。
 
-## 文件结构
-
-```text
-polynomial-server-home/
-├── index.html
-├── assets/
-│   ├── css/style.css
-│   └── js/main.js
-└── README.md
-```
-
-## 部署到 Nginx
-
-将压缩包上传到服务器后执行：
+## 首次部署
 
 ```bash
-sudo mkdir -p /var/www/polynomial-home
-sudo cp -r polynomial-server-home/* /var/www/polynomial-home/
+cd /var/www
+sudo unzip polynomial-server-home-v2.zip
+sudo mv polynomial-server polynomial-home
+cd polynomial-home
+sudo npm install --omit=dev
+```
+
+创建 systemd 服务：
+
+```bash
+sudo nano /etc/systemd/system/polynomial-home.service
+```
+
+粘贴以下内容，并务必修改 `ADMIN_PASSWORD`：
+
+```ini
+[Unit]
+Description=Polynomial Server Home
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/polynomial-home
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+Environment=COOKIE_SECURE=false
+Environment=ADMIN_USERNAME=polynomial
+Environment=ADMIN_PASSWORD=请换成至少16位的强密码
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+然后运行：
+
+```bash
 sudo chown -R www-data:www-data /var/www/polynomial-home
-sudo find /var/www/polynomial-home -type d -exec chmod 755 {} \;
-sudo find /var/www/polynomial-home -type f -exec chmod 644 {} \;
+sudo systemctl daemon-reload
+sudo systemctl enable --now polynomial-home
+```
+
+## Nginx 配置
+
+站点配置中的 `server` 段使用：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location /chat-socket {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+}
+```
+
+检查并重载：
+
+```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-如果你已经在 `/var/www/polynomial-home` 中解压，以上复制命令可以跳过。
+首次打开 `/login.html`，使用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 登录。管理员可以在 `/admin.html` 创建其他账号。
 
-## 部署前建议修改
+## 修改内容
 
-- 在 `index.html` 中把 `hello@example.com` 换成你的邮箱。
-- 项目卡目前是展示卡；需要跳转时，把对应 `article` 改成带 `href` 的链接或在卡片内添加链接。
-- `assets/js/main.js` 中的时区是 `America/Toronto`，可以改成其他 IANA 时区。
-- 静态页面无法安全读取服务器 CPU、内存等指标，因此主页只显示服务结构。真实监控应通过经过鉴权的 API 或独立监控面板接入。
+- 作者与邮箱：`public/index.html`
+- 项目与 GitHub 链接：`public/projects.html`
+- 小游戏入口：`public/games.html`
+- 样式：`public/assets/site.css`
+
+## 安全提醒
+
+- 正式公开前配置 HTTPS，并将 `COOKIE_SECURE=true`。
+- 不要使用 README 示例密码。
+- `data/store.json` 含账号哈希和聊天记录，不要提交到公开 GitHub 仓库。
+- 建议定期备份 `data/store.json`。
