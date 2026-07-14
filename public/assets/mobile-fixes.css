@@ -1,0 +1,6 @@
+@media(max-width:760px){
+  .chat-layout{height:auto;min-height:calc(100vh - 69px)}
+  .chat-side{display:block;position:static;width:auto;height:auto;padding:14px;border-right:0;border-bottom:1px solid var(--line);transform:none}
+  .chat-account{margin-bottom:10px}.conversation-list{display:flex;overflow-x:auto}.conversation-item{min-width:150px}
+  .connection{display:none}.chat-main{min-height:70vh}.settings-grid{grid-template-columns:1fr}.dialog{padding:18px}
+}
