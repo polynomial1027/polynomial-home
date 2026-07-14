@@ -9,6 +9,7 @@
     "check": "node --check server.js && node --check lib/store.js"
   },
   "dependencies": {
+    "busboy": "^1.6.0",
     "ws": "^8.18.3"
   },
   "engines": {
