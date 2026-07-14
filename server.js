@@ -15,6 +15,19 @@ const state = load();
 const loginAttempts = new Map();
 const uploadDir = path.join(__dirname, 'data', 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
+const lexiconDir = path.join(__dirname, 'third_party', 'Sensitive-lexicon', 'Vocabulary');
+function loadDefaultLexicon() {
+  if (!fs.existsSync(lexiconDir)) return { root: new Map(), count: 0 };
+  const words = new Set();
+  for (const name of fs.readdirSync(lexiconDir)) {
+    if (!name.endsWith('.txt')) continue;
+    for (const line of fs.readFileSync(path.join(lexiconDir, name), 'utf8').split(/\r?\n/)) { const word = line.trim().toLowerCase(); if (word) words.add(word); }
+  }
+  const root = new Map();
+  for (const word of words) { let node = root; for (const char of Array.from(word)) { if (!node.has(char)) node.set(char, new Map()); node = node.get(char); } node.terminal = true; }
+  return { root, count: words.size };
+}
+const defaultLexicon = loadDefaultLexicon();
 
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
 const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
@@ -46,7 +59,13 @@ const publicConversation = item => ({ id: item.id, title: item.title, type: item
 const safeFileName = name => path.basename(String(name || 'file')).replace(/[\r\n"]/g, '_').slice(0, 180);
 const removeStoredFile = file => { try { fs.unlinkSync(path.join(uploadDir, file.storedName)); } catch {} };
 const filterSensitiveText = text => {
-  let value = String(text || ''); const words = (state.settings.sensitiveWords || []).map(word => String(word).trim()).filter(Boolean);
+  let value = String(text || '');
+  if (state.settings.sensitiveWordSource === 'default' && defaultLexicon.count) {
+    const original = Array.from(value), lower = Array.from(value.toLowerCase()), masked = new Array(original.length).fill(false); let found = false;
+    for (let start = 0; start < lower.length; start++) { let node = defaultLexicon.root; for (let end = start; end < lower.length; end++) { node = node.get(lower[end]); if (!node) break; if (node.terminal) { found = true; if (state.settings.sensitiveWordMode === 'reject') return { error: '消息包含默认词库中的敏感词' }; for (let index = start; index <= end; index++) masked[index] = true; } } }
+    return { text: found ? original.map((char, index) => masked[index] ? '*' : char).join('') : value };
+  }
+  const words = (state.settings.sensitiveWords || []).map(word => String(word).trim()).filter(Boolean);
   const found = words.find(word => value.toLowerCase().includes(word.toLowerCase()));
   if (!found) return { text: value };
   if (state.settings.sensitiveWordMode === 'reject') return { error: '消息包含管理员设置的敏感词' };
@@ -104,6 +123,18 @@ async function api(req, res, url) {
     const conversationId = url.searchParams.get('conversationId') || 'lobby';
     if (!conversationFor(conversationId, user)) return json(res, 403, { error: '无权访问该聊天' });
     return json(res, 200, { messages: state.messages.filter(message => message.conversationId === conversationId).slice(-Math.max(20, Number(state.settings.messageHistoryLimit) || 200)) });
+  }
+  if (url.pathname === '/api/messages' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; const data = await body(req); const conversationId = String(data.conversationId || 'lobby');
+    if (!conversationFor(conversationId, user)) return json(res, 403, { error: '无权向该聊天发送消息' });
+    const filteredText = filterSensitiveText(String(data.text || '').trim().slice(0, Number(state.settings.maxMessageLength) || 1000)); if (filteredText.error) return json(res, 400, { error: filteredText.error });
+    const attachmentIds = Array.isArray(data.attachmentIds) ? data.attachmentIds.slice(0, Number(state.settings.maxAttachmentsPerMessage) || 5) : [];
+    const attachments = attachmentIds.map(id => state.files.find(file => file.id === id && file.uploadedBy === user.id && file.conversationId === conversationId)).filter(Boolean).map(file => ({ id: file.id, originalName: file.originalName, mimeType: file.mimeType, size: file.size }));
+    if (!filteredText.text && !attachments.length) return json(res, 400, { error: '消息或附件不能为空' });
+    const replyTarget = data.replyToId ? state.messages.find(message => message.id === data.replyToId && message.conversationId === conversationId) : null;
+    const replyTo = replyTarget ? { id: replyTarget.id, displayName: replyTarget.displayName, text: replyTarget.text.slice(0, 160) } : null;
+    const message = { id: crypto.randomUUID(), conversationId, userId: user.id, username: user.username, displayName: user.displayName, text: filteredText.text, attachments, replyTo, createdAt: new Date().toISOString() };
+    state.messages.push(message); state.messages = state.messages.slice(-10000); save(state); broadcast({ type: 'message', message }, conversationId); return json(res, 201, { message });
   }
   if (url.pathname === '/api/admin/messages' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return;
@@ -181,7 +212,7 @@ async function api(req, res, url) {
   if (gameSaveMatch && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; const data = await body(req); const serialized = JSON.stringify(data.data); if (Buffer.byteLength(serialized) > Number(state.settings.maxGameSaveKB) * 1024) return json(res, 400, { error: `游戏存档超过 ${state.settings.maxGameSaveKB} KB 限制` }); let item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); if (!item) { item = { id: crypto.randomUUID(), userId: user.id, gameId: gameSaveMatch[1], data: null, updatedAt: null }; state.gameSaves.push(item); } item.data = data.data; item.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { save: { data: item.data, updatedAt: item.updatedAt } }); }
   if (url.pathname === '/api/settings' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { settings: state.settings }); }
   if (url.pathname === '/api/chat-config' && req.method === 'GET') { if (!requireUser(req, res)) return; const { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } = state.settings; return json(res, 200, { settings: { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } }); }
-  if (url.pathname === '/api/settings' && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; const data = await body(req); const settings = { maxUploadMB: Number(data.maxUploadMB), editWindowMinutes: Number(data.editWindowMinutes), maxGroupMembers: Number(data.maxGroupMembers), maxMessageLength: Number(data.maxMessageLength), maxAttachmentsPerMessage: Number(data.maxAttachmentsPerMessage), messageHistoryLimit: Number(data.messageHistoryLimit), maxConversationsPerUser: Number(data.maxConversationsPerUser), maxGameSaveKB: Number(data.maxGameSaveKB), allowFileUploads: Boolean(data.allowFileUploads), sensitiveWords: String(data.sensitiveWords || '').split(/[\n,，]/).map(word => word.trim()).filter(Boolean), sensitiveWordMode: data.sensitiveWordMode === 'reject' ? 'reject' : 'mask' }; const minimums = { maxUploadMB:[1,'上传上限'],editWindowMinutes:[0,'编辑时限'],maxGroupMembers:[2,'聊天组人数'],maxMessageLength:[1,'消息字数'],maxAttachmentsPerMessage:[1,'附件数量'],messageHistoryLimit:[1,'历史消息数量'],maxConversationsPerUser:[1,'聊天数量'],maxGameSaveKB:[1,'游戏存档大小'] }; for (const [key,[min,label]] of Object.entries(minimums)) if (!Number.isSafeInteger(settings[key]) || settings[key] < min) return json(res, 400, { error: `${label}必须是不小于 ${min} 的整数` }); state.settings = settings; save(state); return json(res, 200, { settings }); }
+  if (url.pathname === '/api/settings' && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; const data = await body(req); const settings = { maxUploadMB: Number(data.maxUploadMB), editWindowMinutes: Number(data.editWindowMinutes), maxGroupMembers: Number(data.maxGroupMembers), maxMessageLength: Number(data.maxMessageLength), maxAttachmentsPerMessage: Number(data.maxAttachmentsPerMessage), messageHistoryLimit: Number(data.messageHistoryLimit), maxConversationsPerUser: Number(data.maxConversationsPerUser), maxGameSaveKB: Number(data.maxGameSaveKB), allowFileUploads: Boolean(data.allowFileUploads), sensitiveWordSource: data.sensitiveWordSource === 'default' ? 'default' : 'custom', sensitiveWords: String(data.sensitiveWords || '').split(/[\n,，]/).map(word => word.trim()).filter(Boolean), sensitiveWordMode: data.sensitiveWordMode === 'reject' ? 'reject' : 'mask' }; const minimums = { maxUploadMB:[1,'上传上限'],editWindowMinutes:[0,'编辑时限'],maxGroupMembers:[2,'聊天组人数'],maxMessageLength:[1,'消息字数'],maxAttachmentsPerMessage:[1,'附件数量'],messageHistoryLimit:[1,'历史消息数量'],maxConversationsPerUser:[1,'聊天数量'],maxGameSaveKB:[1,'游戏存档大小'] }; for (const [key,[min,label]] of Object.entries(minimums)) if (!Number.isSafeInteger(settings[key]) || settings[key] < min) return json(res, 400, { error: `${label}必须是不小于 ${min} 的整数` }); state.settings = settings; save(state); return json(res, 200, { settings }); }
   if (url.pathname === '/api/users' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return; return json(res, 200, { users: state.users.map(publicUser) });
   }
@@ -267,7 +298,7 @@ wss.on('connection', (ws, req) => {
       const message = { id: crypto.randomUUID(), conversationId, userId: user.id, username: user.username, displayName: user.displayName, text, attachments, replyTo, createdAt: new Date().toISOString() };
       state.messages.push(message); state.messages = state.messages.slice(-1000); save(state);
       broadcast({ type: 'message', message }, conversationId);
-    } catch {}
+    } catch (error) { console.error('WebSocket message error:', error); try { ws.send(JSON.stringify({ type: 'error', error: '消息发送失败，请重试' })); } catch {} }
   });
 });
 

@@ -99,3 +99,7 @@ sudo systemctl reload nginx
 - 不要使用 README 示例密码。
 - `data/store.json` 含账号哈希和聊天记录，不要提交到公开 GitHub 仓库。
 - 建议定期备份 `data/store.json`。
+
+## 默认敏感词库
+
+后台“默认开源词库”使用 [konsheng/Sensitive-lexicon](https://github.com/konsheng/Sensitive-lexicon)。该项目采用 MIT License；原始版权与许可文本保存在 `third_party/Sensitive-lexicon/LICENSE`。词库只在服务启动时从本地加载，运行期间不会请求 GitHub。
