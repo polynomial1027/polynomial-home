@@ -1,0 +1,135 @@
+(() => {
+  const STORAGE_KEY = 'polynomial-language';
+  const language = localStorage.getItem(STORAGE_KEY) === 'en' ? 'en' : 'zh';
+  const locale = language === 'en' ? 'en-CA' : 'zh-CN';
+
+  const pairs = [
+    ['首页', 'Home'], ['应用', 'Apps'], ['更新公告', 'Release Notes'], ['项目', 'Projects'], ['小游戏', 'Games'], ['文件网盘', 'File Drive'], ['网络学习', 'Learning'], ['开发者聊天', 'Developer Chat'], ['管理后台', 'Admin'], ['登录', 'Log in'], ['退出', 'Log out'], ['菜单', 'Menu'], ['账号', 'Account'],
+    ['站点导航', 'Site Navigation'], ['问题与联系', 'Support and Contact'], ['用于项目展示、团队协作、文件共享、网络学习和服务器实验的开发中站点。', 'A development site for projects, collaboration, file sharing, online learning, and server experiments.'], ['如果在使用过程中遇到问题，请联系 polynomial。', 'Contact polynomial if you encounter a problem while using the site.'],
+    ['返回首页', 'Back to Home'], ['返回小游戏菜单', 'Back to Games'], ['← 小游戏菜单', '← Games'], ['← 返回课程选择', '← Back to Courses'], ['进入菜单 →', 'Open Menu →'], ['进入项目 →', 'Open Projects →'], ['进入聊天 →', 'Open Chat →'], ['进入课程 →', 'Open Course →'], ['查看公告 →', 'View Release Notes →'],
+    ['网络学习 · Polynomial Server', 'Learning · Polynomial Server'], ['项目 · Polynomial Server', 'Projects · Polynomial Server'], ['小游戏 · Polynomial Server', 'Games · Polynomial Server'], ['文件网盘 · Polynomial Server', 'File Drive · Polynomial Server'], ['开发者聊天 · Polynomial Server', 'Developer Chat · Polynomial Server'], ['管理后台 · Polynomial Server', 'Admin · Polynomial Server'], ['更新公告 · Polynomial Server', 'Release Notes · Polynomial Server'], ['登录 · Polynomial Server', 'Log in · Polynomial Server'], ['星轨消消乐 · Polynomial Server', 'Starpath Match · Polynomial Server'],
+    ['正在进行的项目', 'Projects in Progress'], ['这里集中展示团队正在开发、训练和实验的内容。复制项目卡片即可继续扩展。', 'Explore the projects, training work, and experiments currently in development.'], ['坦克对战与强化学习实验，包括地图、训练、模型对战和可视化。', 'Tank combat and reinforcement-learning experiments covering maps, training, model matches, and visualization.'], ['团队机器学习实验集合，包括贪吃蛇 DQN 与计算机视觉练习。', 'A collection of machine-learning experiments, including Snake DQN and computer-vision exercises.'], ['当前服务器主页及其账号、协作与小游戏入口。', 'The current server portal with account, collaboration, and game entry points.'], ['GitHub 链接占位符', 'GitHub link placeholder'],
+    ['开发与测试', 'Development and Testing'], ['开发者', 'Developer'], ['测试人员', 'Tester'], ['网站问题和测试反馈可通过以下邮箱联系。', 'Use the following email addresses for site issues and testing feedback.'],
+    ['查看开发中的项目与 GitHub 仓库。', 'View active projects and GitHub repositories.'], ['查看网站版本更新、功能变化与维护说明。', 'Review site releases, feature changes, and maintenance notes.'], ['每个入口均为独立页面，可继续添加。', 'Each entry opens a separate page and can be expanded later.'], ['用于项目展示、团队协作和小游戏实验的个人服务器入口。', 'A personal server portal for projects, collaboration, and game experiments.'],
+    ['小游戏菜单', 'Game Menu'], ['游戏进度将按照登录账号分别保存。', 'Game progress is saved separately for each signed-in account.'], ['读取账号中…', 'Loading account…'], ['星轨消消乐', 'Starpath Match'], ['交换星核完成消除、连锁与关卡目标，支持账号存档。', 'Swap star cores to create matches and chains, complete level goals, and save progress to your account.'], ['开始游戏 →', 'Play →'], ['打球', 'Ball Game'], ['对抗式击球与策略训练小游戏。', 'A competitive ball-striking and strategy training game.'], ['坦克大战', 'Tank Battle'], ['玩家、模型或模型之间的坦克对战。', 'Tank battles between players, models, or both.'],
+    ['星轨', 'Starpath'], ['消消乐', 'Match'], ['交换相邻星核，使三个或更多同类连成一线。连续坠落会形成连锁并获得更高分数。', 'Swap adjacent star cores to align three or more. Cascades create chains and earn higher scores.'], ['三连消除', 'Match Three'], ['连锁加分', 'Chain Bonus'], ['账号存档', 'Account Save'], ['关卡', 'Level'], ['分数', 'Score'], ['目标', 'Target'], ['剩余步数', 'Moves Left'], ['暂停', 'Pause'], ['提示', 'Hint'], ['保存', 'Save'], ['新游戏', 'New Game'], ['游戏暂停', 'Game Paused'], ['你的进度已保留。', 'Your progress has been preserved.'], ['继续游戏', 'Resume Game'], ['选择一颗星核，再选择相邻星核进行交换。', 'Select a star core, then select an adjacent core to swap them.'], ['自动存档已启用', 'Auto-save enabled'], ['登录后开始游戏', 'Log in to Play'], ['星轨消消乐会按照你的账号保存关卡、分数、步数和当前棋盘。', 'Starpath Match saves your level, score, moves, and board to your account.'], ['登录账号', 'Log in'],
+    ['网络学习', 'Learning'], ['先选择课程，再在知识正文、代码实验和作业评测之间连续学习。', 'Choose a course, then move continuously between lessons, code experiments, and assignments.'], ['课程中心', 'Course Center'], ['课程、实验和作业按账号保存', 'Courses, experiments, and assignments are saved by account'], ['选择课程', 'Choose a Course'], ['目前开放 Python 基础课程，其他方向将在后续版本加入。', 'Python Foundations is currently available. Additional tracks will be added in future releases.'], ['1 门课程可学习', '1 course available'], ['Python 基础', 'Python Foundations'], ['Python 基础课程', 'Python Foundations'], ['PROGRAMMING · 入门', 'PROGRAMMING · BEGINNER'], ['从对象与点号语法开始，学习变量、容器、控制流、函数、类、文件、异常和测试。', 'Start with objects and dot notation, then study variables, containers, control flow, functions, classes, files, exceptions, and testing.'], ['11 章', '11 chapters'], ['64 节', '64 lessons'], ['15 道作业', '15 assignments'], ['数据分析', 'Data Analysis'], ['DATA · 规划中', 'DATA · PLANNED'], ['面向表格数据、可视化与基础统计的实践课程。', 'A practical course on tabular data, visualization, and foundational statistics.'], ['Web 应用', 'Web Applications'], ['APPLICATION · 规划中', 'APPLICATION · PLANNED'], ['从请求、接口到前后端协作的应用开发课程。', 'Application development from requests and APIs to front-end/back-end collaboration.'], ['敬请期待', 'Coming Soon'],
+    ['完成课节', 'Lessons Completed'], ['通过作业', 'Assignments Passed'], ['课程进度', 'Course Progress'], ['目录', 'Contents'], ['正在读取课程…', 'Loading course…'], ['我的作业草稿', 'My Assignment Drafts'], ['账号隔离环境', 'Isolated Account Environment'], ['检查中…', 'Checking…'], ['代码实验区', 'Code Lab'], ['自由练习', 'Free Practice'], ['运行代码', 'Run Code'], ['重置', 'Reset'], ['运行结果会显示在这里。', 'Program output will appear here.'], ['停止当前环境', 'Stop Environment'], ['无外网 · 资源受限 · 独立存档', 'No internet · Resource limits · Isolated storage'], ['查看、继续编辑或导出当前账号保存的代码。', 'Review, continue editing, or export code saved by the current account.'], ['导出全部 JSON', 'Export All as JSON'], ['0 份草稿', '0 drafts'], ['关闭', 'Close'], ['正在载入课程内容…', 'Loading lesson content…'],
+    ['在右侧运行', 'Run on the Right'], ['我的课程笔记', 'My Course Notes'], ['笔记按当前账号和课节保存', 'Notes are saved by account and lesson'], ['保存笔记', 'Save Notes'], ['保存草稿', 'Save Draft'], ['重置代码', 'Reset Code'], ['测试', 'Test'], ['提交', 'Submit'], ['不公开成绩和答案', 'Keep score and solution private'], ['公开成绩、时间、内存和答案代码', 'Share score, runtime, memory, and solution code'], ['我的作业记录', 'My Assignment Records'], ['清空我的记录', 'Clear My Records'], ['查看其他人的结果', 'View Community Results'], ['正在读取记录…', 'Loading records…'], ['其他人的公开结果', 'Community Results'], ['这里只显示由答题者主动选择公开的成绩和答案；管理员可以删除不适合公开的记录。', 'Only scores and solutions explicitly shared by their authors appear here. Administrators can remove inappropriate public records.'],
+    ['必须保留', 'You must keep'], ['、指定的方法名称、', ', the specified method name, '], [' 和参数。只在方法中补充逻辑，并用 ', ' and parameters. Add logic only inside the method and use '], [' 返回答案；不要读取输入、调用 ', ' to return the answer. Do not read input or call '], [' 代替返回值或写死测试数据。', ' instead of returning a value, and do not hard-code test data.'], ['检测到旧函数格式草稿，已载入新的 Solution 类模板。旧草稿仍保留到你点击“保存草稿”。', 'A legacy function-format draft was detected, so the new Solution template was loaded. The old draft remains until you save.'], ['修改代码后请先测试。通过页面测试后才能正式提交。', 'Test your code first. Submission is enabled only after the visible tests pass.'], ['独立作业编辑区 · 严格使用 class Solution', 'Dedicated assignment editor · class Solution is required'], ['可以修改每次记录的公开状态，或清空当前作业的个人记录', 'Change the visibility of each record or clear your records for this assignment'], ['选择成绩可见性', 'Choose result visibility'], ['调用：', 'Call: '], ['返回：', 'Returns: '], ['示例', 'Example'], ['测试通过', 'Tests passed'], ['测试未通过', 'Tests failed'], ['参数：', 'Arguments: '], ['实际返回：', 'Actual: '], ['期望返回：', 'Expected: '], ['没有返回值', 'No return value'], ['峰值内存', 'peak memory'], ['通过', 'Passed'], ['未通过', 'Failed'], ['已公开', 'Public'], ['私人', 'Private'], ['公开', 'Public'], ['查看答案代码', 'View Solution Code'], ['删除公开答案', 'Delete Public Solution'],
+    ['文件网盘', 'File Drive'], ['私人文件、分享给我的文件与全服务器公共共享盘。', 'Private files, files shared with you, and the server-wide public drive.'], ['上传文件', 'Upload File'], ['选择文件和保存位置，确认后再开始上传。', 'Choose a file and destination, then confirm the upload.'], ['选择文件', 'Choose File'], ['尚未选择文件', 'No file selected'], ['保存位置', 'Destination'], ['私人网盘', 'Private Drive'], ['公共共享盘', 'Public Drive'], ['私人盘', 'Private Drive'], ['公共盘', 'Public Drive'], ['开始上传', 'Start Upload'], ['等待选择文件', 'Waiting for a file'], ['分享给我', 'Shared with Me'], ['上传公共盘', 'Upload to Public Drive'], ['下载公共盘', 'Download from Public Drive'], ['从网盘分享', 'Share from Drive'], ['下载', 'Download'], ['分享', 'Share'], ['删除', 'Delete'], ['这里还没有文件', 'No files here yet'], ['暂无网盘文件', 'No drive files'], ['已删除用户', 'Deleted user'], ['分享文件', 'Share File'], ['分享给', 'Share with'], ['确认分享', 'Confirm Share'], ['确定永久删除这个文件吗？已有分享也会失效。', 'Permanently delete this file? Existing shares will stop working.'], ['私人网盘额度由管理员分配', 'Private-drive quota is assigned by an administrator'], ['管理员可查看、下载或删除任何用户及公共盘文件。', 'Administrators can view, download, or delete any user or public-drive file.'], ['网盘总览', 'Drive Overview'], ['刷新', 'Refresh'],
+    ['开发者大厅', 'Developer Lobby'], ['团队公共留言区', 'Team public message area'], ['实时连接', 'Live connection'], ['发起聊天', 'Start Chat'], ['发送', 'Send'], ['新建聊天', 'New Chat'], ['输入消息…', 'Write a message…'], ['发送图片或文件', 'Send an image or file'], ['从网盘选择', 'Choose from Drive'], ['正在回复', 'Replying'], ['取消', 'Cancel'], ['创建聊天', 'Create Chat'], ['聊天类型', 'Chat Type'], ['聊天组', 'Group Chat'], ['私聊', 'Direct Message'], ['聊天组名称', 'Group name'], ['选择成员', 'Choose members'], ['创建聊天组', 'Create Group'], ['创建私聊', 'Create Direct Message'], ['删除聊天', 'Delete Conversation'], ['消息', 'Messages'], ['回复', 'Reply'], ['编辑', 'Edit'],
+    ['管理后台', 'Administration'], ['当前管理员：', 'Current administrator:'], ['所有设置按照功能独立管理。', 'All settings are organized by feature.'], ['创建账号', 'Create Account'], ['已有账号', 'Existing Accounts'], ['登录账号', 'Username'], ['显示名称', 'Display Name'], ['初始密码（至少 10 位）', 'Initial password (at least 10 characters)'], ['账号角色', 'Account Role'], ['成员', 'Member'], ['管理员', 'Administrator'], ['更新公告管理', 'Release Notes Management'], ['点击展开公告、搜索内容或发布更新。', 'Expand to search, edit, or publish release notes.'], ['搜索', 'Search'], ['发布公告', 'Publish Release Note'], ['功能参数设置', 'Feature Settings'], ['点击右侧箭头展开对应功能；每项设置独占一行。', 'Use the arrow to expand a feature. Each setting occupies its own row.'], ['保存全部参数', 'Save All Settings'],
+    ['聊天与协作', 'Chat and Collaboration'], ['消息、附件、群组与内容管理', 'Messages, attachments, groups, and content management'], ['每条消息附件上限', 'Attachments per Message'], ['一条聊天消息最多携带的文件数量', 'Maximum number of attachments in one chat message'], ['单条消息最多字数', 'Message Length Limit'], ['超过限制的消息不会完整保存', 'Messages over this limit are rejected or truncated'], ['消息编辑时限', 'Message Edit Window'], ['单位为分钟，0 表示不限时', 'Minutes; 0 means unlimited'], ['历史消息载入数量', 'Messages Loaded per Page'], ['每次打开聊天默认读取的消息数', 'Number of messages loaded when chat opens'], ['聊天组人数上限', 'Group Member Limit'], ['单个聊天组允许的最多成员数', 'Maximum members in one group'], ['每位用户聊天数量上限', 'Conversations per User'], ['限制用户可创建的聊天组和私聊数量', 'Limits groups and direct messages a user can create'], ['敏感词词库', 'Sensitive-word List'], ['选择自定义或服务器内置开源词库', 'Choose a custom or built-in open-source word list'], ['自定义词库', 'Custom List'], ['默认开源词库', 'Built-in Open-source List'], ['敏感词处理方式', 'Sensitive-word Action'], ['命中后替换内容或拒绝发送', 'Mask matching text or reject the message'], ['替换为星号', 'Mask with Asterisks'], ['拒绝发送', 'Reject Message'], ['自定义敏感词', 'Custom Sensitive Words'], ['每行一个，也可以使用逗号分隔', 'One per line; commas are also accepted'],
+    ['文件上传与网盘', 'Uploads and File Drive'], ['聊天附件和网盘文件的公共限制', 'Shared limits for chat attachments and drive files'], ['允许上传文件', 'Allow File Uploads'], ['关闭后聊天和网盘都不能上传新文件', 'Disables new chat and drive uploads'], ['允许', 'Enabled'], ['单文件上传上限', 'Per-file Upload Limit'], ['单位为 MB，聊天和网盘共用', 'MB; shared by chat and drive'], ['小游戏与存档', 'Games and Saves'], ['游戏存档与后续游戏功能参数', 'Game saves and future game settings'], ['单个游戏存档上限', 'Per-game Save Limit'], ['单位为 KB，限制每个账号的单项游戏存档', 'KB per game save for each account'], ['Python 与实验环境', 'Python and Lab Environment'], ['课程实验、作业评测、容器资源与自动停止', 'Course labs, assignment grading, container resources, and automatic shutdown'], ['同时运行人数', 'Concurrent Environments'], ['当前服务器安全范围为 1–3 人', 'Safe range on this server: 1–3'], ['每个容器内存', 'Memory per Container'], ['单位为 MB，可设置 256–1024', 'MB; allowed range 256–1024'], ['每个容器 CPU', 'CPU per Container'], ['单位为 milli-CPU，1000 表示 1 核', 'milli-CPU; 1000 equals one core'], ['Notebook 存档上限', 'Notebook Storage Limit'], ['单位为 MB；现有存档盘只能扩大，不能直接缩小', 'MB; existing storage images can be expanded but not directly shrunk'], ['新用户存档硬配额', 'Hard Quota for New Users'], ['开启后单个账号无法占满服务器磁盘', 'Prevents one account from filling the server disk'], ['闲置自动停止', 'Idle Shutdown'], ['单位为分钟，可设置 10–240', 'Minutes; allowed range 10–240'],
+    ['修改用户', 'Edit User'], ['账号状态', 'Account Status'], ['启用', 'Active'], ['停用', 'Disabled'], ['停用后会立即退出所有设备', 'Disabling signs the user out on every device'], ['新密码', 'New Password'], ['留空表示不修改', 'Leave blank to keep unchanged'], ['私人网盘额度', 'Private-drive Quota'], ['单位为 MB', 'MB'], ['管理员始终拥有全部功能权限', 'Administrators always have full access'], ['聊天与成员', 'Chat and Members'], ['进入聊天', 'Access Chat'], ['进入聊天、发言和创建会话', 'Open chat, post messages, and create conversations'], ['加入消息', 'Post Messages'], ['在大厅发言', 'Post in Lobby'], ['在聊天和管理后台显示', 'Visible in chat and administration'], ['查看用户信息', 'View User Information'], ['创建聊天组', 'Create Chat Groups'], ['学习与应用', 'Learning and Apps'], ['课程阅读、代码运行、作业评测和小游戏', 'Course reading, code execution, grading, and games'], ['访问网络学习课程', 'Access Learning Courses'], ['运行课程代码与提交作业', 'Run Course Code and Submit Assignments'], ['使用小游戏', 'Use Games'], ['使用私人网盘', 'Use Private Drive'], ['查看公共盘', 'View Public Drive'], ['保存修改', 'Save Changes'], ['删除账户', 'Delete Account'],
+    ['聊天记录管理', 'Chat Record Management'], ['支持搜索和分页，不会一次显示全部记录。', 'Search and pagination prevent loading every record at once.'], ['搜索用户或消息内容', 'Search users or message content'], ['上一页', 'Previous'], ['下一页', 'Next'], ['第 1 页', 'Page 1'], ['标题', 'Title'], ['内容', 'Content'], ['保存公告', 'Save Release Note'], ['编辑公告', 'Edit Release Note'], ['搜索公告标题或正文内容', 'Search release-note title or body'],
+    ['开发者登录', 'Developer Login'], ['账号由管理员创建，用于进入内部聊天与管理页面。', 'Accounts are created by an administrator and provide access to internal chat and administration.'], ['密码', 'Password'],
+    ['记录 Polynomial Server 的功能更新与维护信息。', 'Release history, feature updates, and maintenance notes for Polynomial Server.'], ['正在读取公告…', 'Loading release notes…'], ['正在前往课程与代码实验页面……', 'Opening the course and code lab…'], ['Python 实验室已并入网络学习', 'Python Lab Is Now Part of Learning'], ['正在进入网络学习', 'Opening Learning'], ['立即进入', 'Open Now'],
+    ['3–24 位字母、数字、_ 或 -', '3–24 letters, digits, underscores, or hyphens'], ['Python 代码编辑器', 'Python code editor'], ['中国 · 上海', 'China · Shanghai'], ['美国东部 · 纽约', 'Eastern US · New York'], ['开启', 'Enabled'], ['打开完整 JupyterLab', 'Open full JupyterLab'], ['敏感词一\n敏感词二', 'sensitive word 1\nsensitive word 2'], ['敏感词一&#10;敏感词二', 'sensitive word 1\nsensitive word 2'], ['查看网络学习与 JupyterLab 使用的账号容器，并可由管理员强制停止。', 'Inspect account containers used by Learning and JupyterLab, and stop them as an administrator.'], ['登录账号后按用户保存游戏进度。', 'Sign in to save game progress by account.'], ['私人盘、公共盘和下载权限', 'Private drive, public drive, and download permissions'], ['类型', 'Type'], ['网络学习代码环境', 'Learning Code Environment'], ['读取空间…', 'Loading storage…'], ['读取账号…', 'Loading account…'], ['课程代码环境状态', 'Course Environment Status'], ['需要账号登录的内部实时沟通空间。', 'An internal real-time communication space that requires an account.'],
+    ['请求失败', 'Request failed'], ['未登录', 'Not signed in'], ['读取中', 'Loading'], ['暂时不可用', 'Temporarily unavailable'], ['需要登录', 'Login required'], ['未开放权限', 'Access not enabled'], ['尚未启动', 'Not started'], ['环境正在运行', 'Environment running'], ['环境暂时不可用', 'Environment unavailable'], ['将在运行代码时启动', 'Starts when code runs'], ['运行中…', 'Running…'], ['测试中…', 'Testing…'], ['提交中…', 'Submitting…'], ['保存中…', 'Saving…'], ['保存成功', 'Saved'], ['自动保存', 'Auto-saved'], ['正在上传', 'Uploading'], ['上传完成', 'Upload complete'], ['上传失败', 'Upload failed'], ['保存失败', 'Save failed'], ['已保存', 'Saved'], ['已重置', 'Reset complete'], ['重置失败', 'Reset failed'], ['正在删除…', 'Deleting…'], ['正在清空…', 'Clearing…'], ['已选择文件', 'File selected'], ['请保持页面打开，正在传输文件。', 'Keep this page open while the file is transferred.'], ['网盘中没有可用文件', 'No drive files are available'], ['进入账号空间', 'Open Account Space'], ['登录后保存游戏进度', 'Sign in to Save Game Progress'], ['未登录时可以浏览菜单，但游戏存档需要账号。', 'You can browse the menu without signing in, but an account is required to save game progress.'], ['账号已创建', 'Account created'], ['暂无用户', 'No users'], ['正在读取运行状态…', 'Loading environment status…'], ['已停止', 'Stopped'], ['停止', 'Stop'], ['网盘', 'Drive'],
+    ['下一关', 'Next Level'], ['重试本关', 'Retry Level'], ['继续', 'Resume'], ['关卡完成', 'Level Complete'], ['步数用尽', 'No Moves Left'], ['当前棋盘已保留。', 'The current board has been preserved.'], ['已读取账号存档。', 'Account save loaded.'], ['新游戏开始：交换相邻星核完成消除。', 'New game started. Swap adjacent star cores to make a match.'], ['棋盘已重新排列。', 'The board has been reshuffled.'], ['消除成功，继续寻找星核组合。', 'Match completed. Look for the next combination.'], ['这次交换没有形成消除。', 'That swap did not create a match.'], ['闪烁的两颗星核可以形成消除。', 'The two highlighted star cores can create a match.'],
+    ['内存', 'Memory'], ['存档', 'Storage'], ['闲置停止', 'Idle shutdown'], ['进入 JupyterLab', 'Open JupyterLab'], ['启动并进入 JupyterLab', 'Start and Open JupyterLab'], ['正在准备独立 Python 环境，首次启动可能需要几秒…', 'Preparing an isolated Python environment. The first start may take a few seconds…'], ['正在停止…', 'Stopping…'], ['环境已停止', 'Environment stopped'], ['环境已停止，Notebook 存档仍然保留。', 'The environment has stopped. Notebook storage is preserved.'], ['环境已停止，运行代码时会重新启动。', 'The environment has stopped and will restart when code runs.'], ['请联系管理员为此账号开放 Python 实验室权限。', 'Ask an administrator to enable Python Lab access for this account.'],
+    ['未开放代码运行权限', 'Code execution not enabled'], ['管理员尚未为此账号开放代码运行权限。', 'An administrator has not enabled code execution for this account.'], ['正在启动或连接账号隔离环境。', 'Starting or connecting to the isolated account environment.'], ['正在运行', 'Running'], ['正在重置…', 'Resetting…'], ['正在准备完整 JupyterLab…', 'Preparing the full JupyterLab environment…'], ['停止当前 Python 环境？已经保存的 Notebook 和作业记录不会删除。', 'Stop the current Python environment? Saved notebooks and assignment records will not be deleted.'], ['确定停止当前 Python 环境吗？已保存的 Notebook 不会删除。', 'Stop the current Python environment? Saved notebooks will not be deleted.'], ['确定强制停止该用户的 Python 环境吗？已保存文件不会删除。', 'Force-stop this user’s Python environment? Saved files will not be deleted.'],
+    ['我的提交', 'My Submission'], ['修改记录公开模式', 'Change Record Visibility'], ['可见性', 'Visibility'], ['隐藏', 'Private'], ['取消完成标记', 'Remove Completion Mark'], ['标记本节已完成', 'Mark Lesson Complete'], ['已经是第一节', 'First lesson'], ['已经是最后一节', 'Last lesson'], ['继续编辑', 'Continue Editing'], ['导出 .py', 'Export .py'], ['查看保存的代码', 'View Saved Code'], ['当前账号还没有保存作业草稿。进入作业后点击“保存草稿”，这里就会出现记录。', 'No assignment drafts have been saved for this account. Open an assignment and select “Save Draft” to create one.'], ['正在使用服务器生成的测试数据运行函数…', 'Running your method against server-generated test data…'], ['还没有提交记录', 'No submission records yet'], ['还没有用户公开这道作业的结果。', 'No one has shared a result for this assignment yet.'], ['# 此公开记录没有可显示的代码', '# No solution code is available for this public record'], ['执行中断，未得到返回值', 'Execution stopped before a return value was produced'], ['程序未通过评测。', 'The program did not pass the evaluation.'], ['程序运行完成，没有产生标准输出。', 'The program completed without producing standard output.'], ['暂无公告', 'No release notes'], ['没有匹配的公告', 'No matching release notes'], ['暂无聊天记录', 'No chat records'], ['没有匹配的聊天记录', 'No matching chat records'], ['附件消息', 'Attachment message'], ['来自网盘', 'From Drive'], ['已编辑', 'edited'], ['确定删除这条消息吗？', 'Delete this message?'], ['确定由管理员删除这条消息吗？', 'Delete this message as an administrator?'], ['确定删除这条公告吗？', 'Delete this release note?'], ['确定删除该用户的文件吗？', 'Delete this user’s file?'], ['确定恢复这道作业的初始代码模板吗？当前编辑区内容会被覆盖。', 'Restore the starter template for this assignment? The current editor content will be replaced.'], ['确定清空当前作业的全部个人提交记录吗？此操作不能撤销，作业代码草稿不会删除。', 'Clear all of your submission records for this assignment? This cannot be undone, but the code draft will remain.'], ['确定以管理员身份删除这条公开答案吗？此操作不能撤销。', 'Delete this public solution as an administrator? This cannot be undone.'], ['确定开始新游戏吗？当前棋盘会被覆盖。', 'Start a new game? The current board will be replaced.'], ['print("开始练习")', 'print("Start practicing")']
+  ];
+
+  const translations = new Map(pairs);
+  const preserveUnknownSelector = '.message,.message-quote,.attachments,.drive-row,.announcement-card,.admin-message-row,.player-chip,.author,.language-switcher,textarea,code,pre,input,[data-i18n-user]';
+
+  const patterns = [
+    [/^(\d+) 份草稿$/, '$1 drafts'], [/^(\d+) 个文件$/, '$1 files'], [/^第 (\d+) 章$/, 'Chapter $1'], [/^第 (\d+) 章 · (.+)$/, 'Chapter $1 · $2'], [/^预计 (\d+) 分钟$/, 'About $1 min'], [/^(\d+) 节$/, '$1 lessons'],
+    [/^(\d+) \/ (\d+) 课节 · (\d+) \/ (\d+) 作业$/, '$1 / $2 lessons · $3 / $4 assignments'], [/^第 (\d+) \/ (\d+) 页，共 (\d+) 条$/, 'Page $1 of $2 · $3 records'], [/^第 (\d+) 页$/, 'Page $1'],
+    [/^(\d+) 分钟$/, '$1 min'], [/^(\d+) MB 存档$/, '$1 MB storage'], [/^(\d+) 分钟闲置停止$/, '$1 min idle shutdown'], [/^测试 (\d+)$/, 'Test $1'], [/^(\d+) 个测试$/, '$1 tests'],
+    [/^第(\d+)行第(\d+)列$/, 'row $1, column $2'], [/^第 (\d+) 关开始。$/, 'Level $1 started.'], [/^(\d+) 连锁！获得额外分数。$/, '$1-chain combo! Bonus awarded.'], [/^(\d+) 连锁 \+(\d+)$/, '$1-chain +$2'],
+    [/^距离目标还差 ([\d,]+) 分。$/, '$1 points short of the target.'], [/^你以 ([\d,]+) 分完成第 (\d+) 关。$/, 'You completed level $2 with $1 points.'], [/^存档失败：(.+)$/, 'Save failed: $1'],
+    [/^(.+) 正在上传…$/, '$1 is uploading…'], [/^(保存成功|自动保存) · (.+)$/, (_, state, time) => `${state === '保存成功' ? 'Saved' : 'Auto-saved'} · ${time}`], [/^发送图片或文件（单文件上限 (\d+) MB）$/, 'Send an image or file (maximum $1 MB per file)'], [/^当前运行 (\d+) \/ (\d+) 个环境$/, '$1 of $2 environments running'], [/^当前账号：(.+)$/, 'Current account: $1'], [/^查看其他人的结果(?:（(\d+)）)?$/, (_, count) => count ? `View Community Results (${count})` : 'View Community Results'],
+    [/^(.+) · 已编辑$/, '$1 · edited'], [/^回复 (.+)：(.*)$/, 'Reply to $1: $2'], [/^游戏进度将保存到 @(.+) 的账号。$/, 'Game progress will be saved to @$1.']
+  ];
+
+  function translateText(value, allowFallback = false) {
+    if (language !== 'en' || value == null) return String(value ?? '');
+    const raw = String(value), leading = raw.match(/^\s*/)?.[0] || '', trailing = raw.match(/\s*$/)?.[0] || '', clean = raw.trim();
+    if (!clean) return raw;
+    if (translations.has(clean)) return leading + translations.get(clean) + trailing;
+    for (const [pattern, replacement] of patterns) {
+      if (pattern.test(clean)) return leading + clean.replace(pattern, replacement) + trailing;
+    }
+    let result = clean;
+    for (const [source, target] of [...translations].sort((a, b) => b[0].length - a[0].length)) {
+      if (result.includes(source)) result = result.split(source).join(target);
+    }
+    if (!/[\u3400-\u9fff]/.test(result)) return leading + result + trailing;
+    return allowFallback ? leading + 'The interface could not display this message in English.' + trailing : raw;
+  }
+
+  function shouldPreserveUnknown(node) {
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    return Boolean(element?.closest(preserveUnknownSelector));
+  }
+
+  function isUserAuthored(node) {
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (['[附件消息]', '已删除用户'].includes(String(node.nodeValue || '').trim())) return false;
+    return Boolean(element?.closest('[data-i18n-user],textarea,code,pre'));
+  }
+
+  function translateElement(root = document) {
+    if (language !== 'en') return;
+    if (root.nodeType === Node.TEXT_NODE) {
+      if (!isUserAuthored(root) && /[^\s]/.test(root.nodeValue || '')) root.nodeValue = translateText(root.nodeValue, !shouldPreserveUnknown(root));
+      return;
+    }
+    if (!(root instanceof Element || root === document)) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(node => {
+      if (!node.parentElement?.closest('script,style') && !isUserAuthored(node)) node.nodeValue = translateText(node.nodeValue, !shouldPreserveUnknown(node));
+    });
+    const elements = root === document ? document.querySelectorAll('*') : [root, ...root.querySelectorAll('*')];
+    elements.forEach(element => {
+      if (element.closest?.('[data-i18n-user]')) return;
+      for (const attribute of ['placeholder', 'title', 'aria-label']) {
+        if (element.hasAttribute(attribute)) element.setAttribute(attribute, translateText(element.getAttribute(attribute), true));
+      }
+    });
+    if (document.title) document.title = translateText(document.title, true);
+  }
+
+  function switcherMarkup() {
+    return `<label class="language-switcher" title="Language"><span>🌐</span><select id="globalLanguage" aria-label="Language"><option value="zh">中文</option><option value="en">English</option></select></label>`;
+  }
+
+  function mountLanguageSwitcher() {
+    let host = document.querySelector('#navLinks, .game-nav');
+    if (!host || host.querySelector('.language-switcher')) return;
+    host.insertAdjacentHTML('beforeend', switcherMarkup());
+    const select = host.querySelector('#globalLanguage');
+    select.value = language;
+    select.addEventListener('change', () => {
+      localStorage.setItem(STORAGE_KEY, select.value === 'en' ? 'en' : 'zh');
+      location.reload();
+    });
+  }
+
+  document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN';
+  document.documentElement.dataset.language = language;
+  const nativeAlert = window.alert.bind(window), nativeConfirm = window.confirm.bind(window);
+  window.alert = message => nativeAlert(translateText(message, true));
+  window.confirm = message => nativeConfirm(translateText(message, true));
+
+  window.I18N = { language, locale, t: (zh, en) => language === 'en' ? en : zh, translateText, translateElement, mountLanguageSwitcher };
+
+  const start = () => {
+    translateElement(document);
+    mountLanguageSwitcher();
+    const observer = new MutationObserver(records => {
+      for (const record of records) record.addedNodes.forEach(node => translateElement(node));
+      mountLanguageSwitcher();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+})();

@@ -185,28 +185,30 @@ try:
         if mode == 'grade':
             class_name = str(evaluation.get('className', 'Solution'))
             function_name = str(evaluation.get('functionName', ''))
+            language = str(evaluation.get('language', 'zh'))
             solution_class = namespace.get(class_name)
             if not isinstance(solution_class, type):
-                raise AssertionError(f'没有找到 class {class_name}')
+                raise AssertionError(f'class {class_name} was not found' if language == 'en' else f'没有找到 class {class_name}')
             cases = evaluation.get('cases') or []
             result['total'] = len(cases)
             for index, case in enumerate(cases, 1):
                 solution = solution_class()
                 function = getattr(solution, function_name, None)
                 if not callable(function):
-                    raise AssertionError(f'class {class_name} 中没有找到可调用的方法 {function_name}()')
+                    raise AssertionError(f'callable method {function_name}() was not found in class {class_name}' if language == 'en' else f'class {class_name} 中没有找到可调用的方法 {function_name}()')
                 args = copy.deepcopy(case.get('args') or [])
                 original_args = copy.deepcopy(args)
                 actual = function(*args)
                 if evaluation.get('revealCaseResults'):
                     result['caseResults'].append({'test': index, 'actualRepr': repr(actual)[:500]})
-                correct = actual == case.get('expected')
+                accepted = case.get('accepted') or [case.get('expected')]
+                correct = actual in accepted
                 if evaluation.get('preserveArgs') and args != original_args:
                     correct = False
                 if correct:
                     result['passed'] += 1
                 elif len(result['failures']) < 3:
-                    result['failures'].append({'test': index, 'message': '返回值或输入数据状态不符合要求'})
+                    result['failures'].append({'test': index, 'message': 'The return value or input state does not meet the specification' if language == 'en' else '返回值或输入数据状态不符合要求'})
             result['success'] = result['passed'] == result['total'] and result['total'] > 0
         else:
             result['success'] = True

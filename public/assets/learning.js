@@ -2,6 +2,7 @@ const learning = {
   user: null, course: null, completed: [], lessonNotes: {}, assignmentDrafts: {}, currentLessonId: null, currentAssignment: null,
   canRun: false, config: {}, drafts: new Map(), records: new Map(), running: false, assignmentTestPassed: false
 };
+const learningLanguage = localStorage.getItem('polynomial-language') === 'en' ? 'en' : 'zh';
 const le = id => document.getElementById(id);
 
 function allLessons() { return learning.course.chapters.flatMap(chapter => chapter.lessons.map(lesson => ({ ...lesson, chapter }))); }
@@ -9,6 +10,7 @@ function assignmentIds() { return allLessons().map(item => item.assignment?.id).
 function currentLesson() { return allLessons().find(item => item.id === learning.currentLessonId); }
 
 async function initLearningLab() {
+  le('runOutput').textContent = learningLanguage === 'en' ? 'Program output will appear here.' : '运行结果会显示在这里。';
   const user = await loadAccount();
   learning.user = user;
   const [courseData, progressData] = await Promise.all([request('/api/learning/course'), request('/api/learning/progress')]);
@@ -228,7 +230,10 @@ function showRunResult(result) {
   le('workspaceNotice').style.color = result.success ? 'var(--accent2)' : 'var(--danger)';
 }
 
-function formatMemory(kb) { return Number(kb) >= 1024 ? `${(Number(kb) / 1024).toFixed(1)} MB 峰值内存` : `${Number(kb || 0)} KB 峰值内存`; }
+function formatMemory(kb) {
+  const value = Number(kb) >= 1024 ? `${(Number(kb) / 1024).toFixed(1)} MB` : `${Number(kb || 0)} KB`;
+  return `${value} ${window.I18N?.language === 'en' ? 'peak memory' : '峰值内存'}`;
+}
 function showWorkspaceError(message) { le('workspaceNotice').style.color = 'var(--danger)'; le('workspaceNotice').textContent = message; le('runOutput').textContent = message; }
 
 async function loadRecords(assignmentId, render = true) {
@@ -268,7 +273,7 @@ function openCommunityResults() {
 
 function renderCommunityResults(shared) {
   const list = le('communityResultList'); if (!list) return;
-  list.innerHTML = shared.length ? shared.map((item, index) => `<article class="community-result"><div class="community-result-meta"><div><strong>${esc(item.displayName)}</strong><small>@${esc(item.username)} · ${new Date(item.submittedAt).toLocaleString('zh-CN')}</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace('峰值内存', '')}</span>${learning.user?.role === 'admin' ? `<button class="delete-public-answer" data-delete-public-answer="${item.id}" type="button">删除公开答案</button>` : ''}</div></div><details ${index === 0 ? 'open' : ''}><summary>查看答案代码</summary><pre><code>${esc(item.code || '# 此公开记录没有可显示的代码')}</code></pre></details></article>`).join('') : '<div class="empty community-empty">还没有用户公开这道作业的结果。</div>';
+  list.innerHTML = shared.length ? shared.map((item, index) => `<article class="community-result"><div class="community-result-meta"><div><strong data-i18n-user>${esc(item.displayName)}</strong><small><span data-i18n-user>@${esc(item.username)}</span> · ${new Date(item.submittedAt).toLocaleString(window.I18N?.locale || 'zh-CN')}</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace(/峰值内存|peak memory/g, '').trim()}</span>${learning.user?.role === 'admin' ? `<button class="delete-public-answer" data-delete-public-answer="${item.id}" type="button">删除公开答案</button>` : ''}</div></div><details ${index === 0 ? 'open' : ''}><summary>查看答案代码</summary><pre><code>${esc(item.code || (window.I18N?.language === 'en' ? '# No solution code is available for this public record' : '# 此公开记录没有可显示的代码'))}</code></pre></details></article>`).join('') : '<div class="empty community-empty">还没有用户公开这道作业的结果。</div>';
   list.querySelectorAll('[data-delete-public-answer]').forEach(button => button.onclick = async () => {
     if (!confirm('确定以管理员身份删除这条公开答案吗？此操作不能撤销。')) return;
     button.disabled = true; button.textContent = '正在删除…';
@@ -278,7 +283,7 @@ function renderCommunityResults(shared) {
 }
 
 function recordRow(item, label) {
-  return `<div class="submission-row"><div><strong>${esc(label)} · ${item.success ? '通过' : '未通过'}</strong><small>${new Date(item.submittedAt).toLocaleString('zh-CN')} · ${item.passed}/${item.total} 个测试</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace('峰值内存', '')}</span>${item.own ? `<label class="record-visibility-label"><span>可见性</span><select data-record-visibility="${item.id}" aria-label="修改记录公开模式"><option value="private" ${item.visibility === 'private' ? 'selected' : ''}>隐藏</option><option value="public" ${item.visibility === 'public' ? 'selected' : ''}>公开</option></select></label>` : '<span>已公开</span>'}</div></div>`;
+  return `<div class="submission-row"><div><strong>${esc(label)} · ${item.success ? '通过' : '未通过'}</strong><small>${new Date(item.submittedAt).toLocaleString(window.I18N?.locale || 'zh-CN')} · ${item.passed}/${item.total} 个测试</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace(/峰值内存|peak memory/g, '').trim()}</span>${item.own ? `<label class="record-visibility-label"><span>可见性</span><select data-record-visibility="${item.id}" aria-label="修改记录公开模式"><option value="private" ${item.visibility === 'private' ? 'selected' : ''}>隐藏</option><option value="public" ${item.visibility === 'public' ? 'selected' : ''}>公开</option></select></label>` : '<span>已公开</span>'}</div></div>`;
 }
 
 async function saveLessonNotes() {

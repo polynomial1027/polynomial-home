@@ -1,12 +1,12 @@
 {
   "name": "polynomial-server-home",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Polynomial Server portal with courses, isolated Python labs and randomized assignment grading",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check lib/store.js && node --check lib/python-course.js && node --check public/assets/site.js && node --check public/assets/learning.js && node --check public/assets/games/match3.js"
+    "check": "node --check server.js && node --check lib/store.js && node --check lib/server-i18n.js && node --check lib/python-course.js && node --check lib/python-course-en.js && node --check public/assets/i18n.js && node --check public/assets/site.js && node --check public/assets/learning.js && node --check public/assets/games/match3.js"
   },
   "dependencies": {
     "busboy": "^1.6.0",
