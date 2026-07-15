@@ -1,6 +1,8 @@
-# Polynomial Server Home 2.0
+# Polynomial Server Home 3.1
 
-完整主页包含：首页、项目页、小游戏菜单、账号登录、管理员分配账号、登录后实时聊天。
+完整门户包含：首页、项目、小游戏、网盘、网络学习、账号系统、实时聊天，以及按账号隔离的 JupyterLab Python 实验室。
+
+3.1 版重新设计了管理后台的功能参数目录和用户权限设置，调整了网盘上传与文件列表布局，并修复聊天附件、网盘文件的中文文件名显示。服务启动时也会尝试修复旧数据中可识别的 UTF-8/Latin-1 文件名乱码。
 
 解压后，`index.html` 就在第一层目录。请注意：账号和实时聊天需要运行 `server.js`，不能只双击 HTML 或只把 HTML 当作纯静态文件上传。
 
@@ -75,6 +77,20 @@ location /chat-socket {
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
 }
+
+location ^~ /python/session/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_buffering off;
+}
 ```
 
 检查并重载：
@@ -101,12 +117,30 @@ sudo systemctl reload nginx
 - 建议定期备份 `data/store.json`。
 - 网盘实际文件位于 `data/drive/`，聊天上传位于 `data/uploads/`；备份时必须连同 `data/store.json` 一起保存，否则文件索引与内容无法对应。
 
-## 网盘与网络学习
+## 网盘、网络学习与 Python 实验室
 
 - `/drive.html`：私人网盘、公共共享盘和用户间分享。
 - `/learning.html`：Python 基础示例课程，学习进度和笔记按账号保存。
-- 管理员可在 `/admin.html` 为每位用户设置网盘额度和聊天、网盘、小游戏、网络学习等功能权限，并查看全部网盘文件。
-- 在线 Notebook 执行环境尚未启用，后续应使用隔离容器部署，不能直接在主 Node 进程中执行用户 Python 代码。
+- `/python.html`：登录后启动该账号的独立 JupyterLab 环境。
+- 管理员可在 `/admin.html` 设置网盘额度、Python 权限、同时运行人数、容器内存、CPU、Notebook 存档额度、硬配额和闲置停止时间。
+
+## Notebook 主机配置
+
+仓库不包含 1 GB 以上的本地 Docker 镜像。部署前需要在服务器准备好 `polynomial-notebook:local` 和内部网络 `polynomial-notebook-internal`。
+
+安装已经审核的受限管理脚本：
+
+```bash
+sudo install -o root -g root -m 0755 ops/polynomial-notebookctl /usr/local/sbin/polynomial-notebookctl
+sudo install -o root -g root -m 0440 ops/polynomial-notebook.sudoers /etc/sudoers.d/polynomial-notebook
+sudo visudo -c
+```
+
+`ops/polynomial-notebook.sudoers` 默认服务用户为 `polynomial1027`。如果 systemd 使用其他用户，安装前需要同步修改该文件。
+
+将 `ops/nginx-notebook-location.conf` 中的 `location` 放入现有 Nginx `server` 块，然后检查并重载 Nginx。Node 服务只通过受限脚本管理带有固定镜像、固定内部网络、只读根文件系统和资源上限的 Notebook 容器，不应加入 `docker` 用户组。
+
+默认参数适用于4核、约3.2 GiB内存的服务器：2人并发、每个容器512 MB内存、1核CPU、1 GB存档硬配额、30分钟闲置停止。安全范围由后端和 root 脚本共同验证。
 
 ## 默认敏感词库
 

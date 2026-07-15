@@ -1,4 +1,38 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文件网盘 · Polynomial Server</title><link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/enhancements.css"><link rel="stylesheet" href="/assets/portal.css"></head><body><header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a></div></header>
-<main class="wrap"><div class="page-title"><div class="eyebrow">Cloud Drive</div><h1>文件网盘</h1><p>私人文件、分享给我的文件与全服务器公共共享盘。</p></div><section class="panel"><div class="drive-meter"><div><strong id="driveUsage">读取空间…</strong><small>私人网盘额度由管理员分配</small></div><progress id="driveProgress" max="100" value="0"></progress></div><div class="drive-actions"><label class="button">上传文件<input id="driveUpload" type="file" hidden></label><select id="driveScope"><option value="private">上传到私人网盘</option><option value="public">上传到公共共享盘</option></select></div><div class="notice" id="driveNotice"></div></section>
-<section class="drive-tabs"><button class="active" data-drive-tab="private">私人网盘</button><button data-drive-tab="shared">分享给我</button><button data-drive-tab="public">公共共享盘</button></section><section class="panel file-browser" id="driveFiles"></section></main>
-<dialog class="dialog" id="shareDialog"><form method="dialog" id="shareForm"><div class="dialog-head"><h2>分享文件</h2><button value="cancel">×</button></div><input id="shareFileId" type="hidden"><div class="field"><label>分享给</label><select id="shareRecipient"></select></div><div class="notice" id="shareNotice"></div><button class="button">确认分享</button></form></dialog><script src="/assets/site.js"></script><script src="/assets/drive.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>文件网盘 · Polynomial Server</title>
+  <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/enhancements.css">
+  <link rel="stylesheet" href="/assets/portal.css">
+</head>
+<body>
+  <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><button class="menu-button" id="menuButton">菜单</button><nav class="nav-links" id="navLinks"></nav></div></header>
+  <main class="wrap drive-page">
+    <div class="page-title"><div class="eyebrow">Cloud Drive</div><h1>文件网盘</h1><p>私人文件、分享给我的文件与全服务器公共共享盘。</p></div>
+
+    <section class="panel drive-dashboard">
+      <div class="drive-meter">
+        <div><div class="eyebrow">Private storage</div><strong id="driveUsage">读取空间…</strong><small>私人网盘额度由管理员分配</small></div>
+        <progress id="driveProgress" max="100" value="0"></progress>
+      </div>
+      <div class="drive-divider"></div>
+      <div class="drive-upload-heading"><div><h2>上传文件</h2><p>选择文件和保存位置，确认后再开始上传。</p></div><span id="driveUploadState">等待选择文件</span></div>
+      <div class="drive-upload-grid">
+        <label class="drive-file-picker" id="driveDropZone" for="driveUpload"><span class="upload-symbol">＋</span><span><strong>选择文件</strong><small id="driveSelectedFile">尚未选择文件</small></span><input id="driveUpload" type="file" hidden></label>
+        <label class="drive-destination" for="driveScope"><span>保存位置</span><select id="driveScope"><option value="private">私人网盘</option><option value="public">公共共享盘</option></select></label>
+        <button class="button drive-upload-button" id="driveUploadButton" type="button" disabled>开始上传</button>
+      </div>
+      <div class="notice" id="driveNotice"></div>
+    </section>
+
+    <div class="drive-browser-head"><div class="drive-tabs"><button class="active" data-drive-tab="private">私人网盘</button><button data-drive-tab="shared">分享给我</button><button data-drive-tab="public">公共共享盘</button></div><span id="driveFileSummary"></span></div>
+    <section class="panel file-browser" id="driveFiles"></section>
+  </main>
+
+  <dialog class="dialog" id="shareDialog"><form method="dialog" id="shareForm"><div class="dialog-head"><h2>分享文件</h2><button value="cancel">×</button></div><input id="shareFileId" type="hidden"><div class="field"><label>分享给</label><select id="shareRecipient"></select></div><div class="notice" id="shareNotice"></div><button class="button">确认分享</button></form></dialog>
+  <script src="/assets/site.js"></script><script src="/assets/drive.js"></script>
+</body>
+</html>

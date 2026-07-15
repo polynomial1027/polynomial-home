@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Python 实验室 · Polynomial Server</title>
+  <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/enhancements.css">
+  <link rel="stylesheet" href="/assets/notebook.css">
+</head>
+<body>
+  <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><button class="menu-button" id="menuButton">菜单</button><nav class="nav-links" id="navLinks"></nav></div></header>
+  <main class="wrap notebook-page">
+    <section class="notebook-hero">
+      <div>
+        <div class="eyebrow">Isolated Python workspace</div>
+        <h1>Python<br><span>实验室</span></h1>
+        <p>在服务器上使用完整的 JupyterLab。代码、输出和 Notebook 按账号独立保存，运行环境受到 CPU、内存、进程和磁盘配额保护。</p>
+      </div>
+      <div class="notebook-console panel">
+        <div class="status-line"><span id="notebookDot" class="status-dot"></span><div><small>当前环境</small><strong id="notebookStatus">检查中…</strong></div></div>
+        <div class="notebook-limits" id="notebookLimits"></div>
+        <div class="notice" id="notebookNotice"></div>
+        <div class="notebook-actions">
+          <button class="button" id="startNotebook" type="button">启动并进入 JupyterLab</button>
+          <button class="button secondary" id="stopNotebook" type="button">停止环境</button>
+        </div>
+      </div>
+    </section>
+    <section class="notebook-features">
+      <article class="card"><span class="num">01 · PRIVATE</span><h3>账号独立存档</h3><p>每个账号使用独立的持久化存档盘，其他普通用户无法读取。</p></article>
+      <article class="card"><span class="num">02 · LIMITED</span><h3>资源受到限制</h3><p>管理员统一设置并发人数、CPU、内存、存储额度和闲置时间。</p></article>
+      <article class="card"><span class="num">03 · OFFLINE</span><h3>无外网运行</h3><p>Python 容器位于内部隔离网络，不能访问互联网或网站主程序文件。</p></article>
+    </section>
+  </main>
+  <script src="/assets/site.js"></script>
+  <script src="/assets/notebook.js"></script>
+</body>
+</html>

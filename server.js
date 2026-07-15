@@ -2,9 +2,15 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const net = require('node:net');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
 const { WebSocketServer } = require('ws');
 const Busboy = require('busboy');
+const httpProxy = require('http-proxy');
 const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser } = require('./lib/store');
+
+const execFileAsync = promisify(execFile);
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -13,6 +19,9 @@ const nestedPublicDir = path.join(__dirname, 'public');
 const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nestedPublicDir : __dirname;
 const state = load();
 const loginAttempts = new Map();
+const notebookActivity = new Map();
+const notebookSockets = new Map();
+const NOTEBOOK_CTL = '/usr/local/sbin/polynomial-notebookctl';
 const uploadDir = path.join(__dirname, 'data', 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
 const driveDir = path.join(__dirname, 'data', 'drive');
@@ -42,6 +51,59 @@ const currentUser = req => {
 const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, permissions: u.permissions, driveQuotaMB: u.driveQuotaMB, createdAt: u.createdAt });
 const allowed = (user, permission) => user?.role === 'admin' || user?.permissions?.[permission] === true;
 const denyUnless = (res, user, permission, message = '此账号未开放该功能') => { if (allowed(user, permission)) return true; json(res, 403, { error: message }); return false; };
+
+const notebookConfig = () => ({
+  maxConcurrent: Number(state.settings.notebookMaxConcurrent) || 2,
+  memoryMB: Number(state.settings.notebookMemoryMB) || 512,
+  cpuMilli: Number(state.settings.notebookCpuMilli) || 1000,
+  storageMB: Number(state.settings.notebookStorageMB) || 1024,
+  quotaEnabled: state.settings.notebookQuotaEnabled !== false,
+  idleMinutes: Number(state.settings.notebookIdleMinutes) || 30
+});
+
+async function notebookCtl(action, userId, ...args) {
+  try {
+    const { stdout } = await execFileAsync('/usr/bin/sudo', ['-n', NOTEBOOK_CTL, action, userId, ...args.map(String)], { timeout: 90_000, maxBuffer: 64 * 1024 });
+    const line = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+    const result = JSON.parse(line || '{}');
+    if (result.ip && net.isIP(result.ip) !== 4) throw new Error('Notebook 返回了无效地址');
+    return result;
+  } catch (error) {
+    const detail = String(error.stderr || error.message || '').trim().split(/\r?\n/).at(-1);
+    throw new Error(detail?.replace(/^ERROR:\s*/, '') || 'Notebook 服务暂时不可用');
+  }
+}
+
+async function startNotebook(user) {
+  const config = notebookConfig();
+  const result = await notebookCtl('start', user.id, config.memoryMB, config.cpuMilli, config.storageMB, config.maxConcurrent, config.quotaEnabled ? 1 : 0);
+  notebookActivity.set(user.id, Date.now());
+  return { running: result.running, container: result.container, config };
+}
+
+async function stopNotebook(userId) {
+  const result = await notebookCtl('stop', userId);
+  notebookActivity.delete(userId);
+  return result;
+}
+
+const notebookProxy = httpProxy.createProxyServer({ ws: true, xfwd: true, changeOrigin: true, proxyTimeout: 0, timeout: 0 });
+notebookProxy.on('error', error => console.error('Notebook proxy error:', error.message));
+
+function trackNotebookSocket(user, token, socket) {
+  let sockets = notebookSockets.get(user.id);
+  if (!sockets) { sockets = new Map(); notebookSockets.set(user.id, sockets); }
+  sockets.set(socket, token);
+  notebookActivity.set(user.id, Date.now());
+  socket.on('data', () => notebookActivity.set(user.id, Date.now()));
+  socket.on('close', () => { sockets.delete(socket); if (!sockets.size) notebookSockets.delete(user.id); });
+}
+
+function closeNotebookSockets(userId, token = null) {
+  const sockets = notebookSockets.get(userId);
+  if (!sockets) return;
+  for (const [socket, socketToken] of sockets) if (!token || token === socketToken) socket.destroy();
+}
 const body = req => new Promise((resolve, reject) => {
   let raw = ''; const maxBodyBytes = Math.max(20_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048);
   req.on('data', chunk => { raw += chunk; if (Buffer.byteLength(raw) > maxBodyBytes) reject(new Error('请求超过后台设置的存储上限')); });
@@ -60,7 +122,13 @@ const conversationFor = (id, user) => {
   return user.role === 'admin' || conversation.memberIds.includes(user.id) ? conversation : null;
 };
 const publicConversation = item => ({ id: item.id, title: item.title, type: item.type, createdBy: item.createdBy, memberIds: item.memberIds, createdAt: item.createdAt });
-const safeFileName = name => path.basename(String(name || 'file')).replace(/[\r\n"]/g, '_').slice(0, 180);
+const repairFileNameEncoding = name => {
+  const value = String(name || 'file');
+  if (!/[\u0080-\u00ff]/.test(value)) return value;
+  const repaired = Buffer.from(value, 'latin1').toString('utf8');
+  return repaired && !repaired.includes('\ufffd') ? repaired : value;
+};
+const safeFileName = name => path.basename(repairFileNameEncoding(name)).replace(/[\r\n"]/g, '_').slice(0, 180);
 const removeStoredFile = file => { try { fs.unlinkSync(path.join(uploadDir, file.storedName)); } catch {} };
 const removeDriveFile = file => { try { fs.unlinkSync(path.join(driveDir, file.storedName)); } catch {} };
 const driveUsed = userId => state.driveFiles.filter(file => file.ownerId === userId && file.scope === 'private').reduce((sum, file) => sum + Number(file.size || 0), 0);
@@ -81,7 +149,7 @@ const filterSensitiveText = text => {
 };
 const readUpload = (req, user, conversation) => new Promise((resolve, reject) => {
   const limit = Math.max(1, Number(state.settings.maxUploadMB) || 10) * 1024 * 1024;
-  const parser = Busboy({ headers: req.headers, limits: { files: 1, fileSize: limit, fields: 2 } });
+  const parser = Busboy({ headers: req.headers, defParamCharset: 'utf8', limits: { files: 1, fileSize: limit, fields: 2 } });
   let result = null; let failure = null; let writePromise = Promise.resolve();
   parser.on('file', (_field, stream, info) => {
     const id = crypto.randomUUID(); const storedName = id;
@@ -99,7 +167,7 @@ const readUpload = (req, user, conversation) => new Promise((resolve, reject) =>
 });
 const readDriveUpload = (req, user, scope) => new Promise((resolve, reject) => {
   const limit = Math.max(1, Number(state.settings.maxUploadMB) || 10) * 1024 * 1024;
-  const parser = Busboy({ headers: req.headers, limits: { files: 1, fileSize: limit } });
+  const parser = Busboy({ headers: req.headers, defParamCharset: 'utf8', limits: { files: 1, fileSize: limit } });
   let result = null, failure = null, writePromise = Promise.resolve();
   parser.on('file', (_field, stream, info) => {
     const id = crypto.randomUUID(), storedName = id, destination = path.join(driveDir, storedName), output = fs.createWriteStream(destination, { mode: 0o600 }); let size = 0;
@@ -131,7 +199,9 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const token = cookies(req).session;
+    const session = state.sessions.find(item => item.token === token);
     state.sessions = state.sessions.filter(s => s.token !== token); save(state);
+    if (session) closeNotebookSockets(session.userId, token);
     res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
     return json(res, 200, { ok: true });
   }
@@ -264,6 +334,40 @@ async function api(req, res, url) {
   if (url.pathname === '/api/admin/drive' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { files: state.driveFiles, shares: state.driveShares, users: state.users.map(publicUser) }); }
   if (url.pathname === '/api/learning/progress' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-basics'); return json(res, 200, { progress: progress || null }); }
   if (url.pathname === '/api/learning/progress' && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const data = await body(req); let progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-basics'); if (!progress) { progress = { id: crypto.randomUUID(), userId: user.id, courseId: 'python-basics' }; state.learningProgress.push(progress); } progress.completedLessons = Array.isArray(data.completedLessons) ? [...new Set(data.completedLessons.map(String))].slice(0, 100) : []; progress.notes = String(data.notes || '').slice(0, 20000); progress.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { progress }); }
+  if (url.pathname === '/api/notebook/status' && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessNotebook', '此账号不能使用 Python 实验室')) return;
+    const status = await notebookCtl('status', user.id);
+    return json(res, 200, { running: Boolean(status.running), container: status.container || null, config: notebookConfig() });
+  }
+  if (url.pathname === '/api/notebook/start' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessNotebook', '此账号不能使用 Python 实验室')) return;
+    const result = await startNotebook(user);
+    return json(res, 200, result);
+  }
+  if (url.pathname === '/api/notebook/stop' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessNotebook', '此账号不能使用 Python 实验室')) return;
+    closeNotebookSockets(user.id);
+    return json(res, 200, await stopNotebook(user.id));
+  }
+  if (url.pathname === '/api/admin/notebooks' && req.method === 'GET') {
+    if (!requireUser(req, res, 'admin')) return;
+    const notebooks = await Promise.all(state.users.filter(user => user.active).map(async user => {
+      try { const status = await notebookCtl('status', user.id); return { user: publicUser(user), running: Boolean(status.running), container: status.container || null }; }
+      catch (error) { return { user: publicUser(user), running: false, error: error.message }; }
+    }));
+    return json(res, 200, { notebooks, config: notebookConfig() });
+  }
+  const adminNotebookMatch = url.pathname.match(/^\/api\/admin\/notebooks\/([^/]+)\/stop$/);
+  if (adminNotebookMatch && req.method === 'POST') {
+    if (!requireUser(req, res, 'admin')) return;
+    const target = state.users.find(user => user.id === adminNotebookMatch[1]);
+    if (!target) return json(res, 404, { error: '用户不存在' });
+    closeNotebookSockets(target.id);
+    return json(res, 200, await stopNotebook(target.id));
+  }
   if (url.pathname === '/api/announcements' && req.method === 'GET') return json(res, 200, { announcements: state.announcements.slice().sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)) });
   if (url.pathname === '/api/announcements' && req.method === 'POST') { if (!requireUser(req, res, 'admin')) return; const data = await body(req); const title = String(data.title || '').trim(), content = String(data.content || '').trim(); if (!title || !content) return json(res, 400, { error: '标题和内容不能为空' }); const item = { id: crypto.randomUUID(), title: title.slice(0, 100), content: content.slice(0, 10000), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; state.announcements.push(item); save(state); return json(res, 201, { announcement: item }); }
   const announcementMatch = url.pathname.match(/^\/api\/announcements\/([^/]+)$/);
@@ -274,7 +378,51 @@ async function api(req, res, url) {
   if (gameSaveMatch && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessGames', '此账号不能使用小游戏')) return; const data = await body(req); const serialized = JSON.stringify(data.data); if (Buffer.byteLength(serialized) > Number(state.settings.maxGameSaveKB) * 1024) return json(res, 400, { error: `游戏存档超过 ${state.settings.maxGameSaveKB} KB 限制` }); let item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); if (!item) { item = { id: crypto.randomUUID(), userId: user.id, gameId: gameSaveMatch[1], data: null, updatedAt: null }; state.gameSaves.push(item); } item.data = data.data; item.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { save: { data: item.data, updatedAt: item.updatedAt } }); }
   if (url.pathname === '/api/settings' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { settings: state.settings }); }
   if (url.pathname === '/api/chat-config' && req.method === 'GET') { if (!requireUser(req, res)) return; const { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } = state.settings; return json(res, 200, { settings: { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } }); }
-  if (url.pathname === '/api/settings' && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; const data = await body(req); const settings = { maxUploadMB: Number(data.maxUploadMB), editWindowMinutes: Number(data.editWindowMinutes), maxGroupMembers: Number(data.maxGroupMembers), maxMessageLength: Number(data.maxMessageLength), maxAttachmentsPerMessage: Number(data.maxAttachmentsPerMessage), messageHistoryLimit: Number(data.messageHistoryLimit), maxConversationsPerUser: Number(data.maxConversationsPerUser), maxGameSaveKB: Number(data.maxGameSaveKB), allowFileUploads: Boolean(data.allowFileUploads), sensitiveWordSource: data.sensitiveWordSource === 'default' ? 'default' : 'custom', sensitiveWords: String(data.sensitiveWords || '').split(/[\n,，]/).map(word => word.trim()).filter(Boolean), sensitiveWordMode: data.sensitiveWordMode === 'reject' ? 'reject' : 'mask' }; const minimums = { maxUploadMB:[1,'上传上限'],editWindowMinutes:[0,'编辑时限'],maxGroupMembers:[2,'聊天组人数'],maxMessageLength:[1,'消息字数'],maxAttachmentsPerMessage:[1,'附件数量'],messageHistoryLimit:[1,'历史消息数量'],maxConversationsPerUser:[1,'聊天数量'],maxGameSaveKB:[1,'游戏存档大小'] }; for (const [key,[min,label]] of Object.entries(minimums)) if (!Number.isSafeInteger(settings[key]) || settings[key] < min) return json(res, 400, { error: `${label}必须是不小于 ${min} 的整数` }); state.settings = settings; save(state); return json(res, 200, { settings }); }
+  if (url.pathname === '/api/settings' && req.method === 'PATCH') {
+    if (!requireUser(req, res, 'admin')) return;
+    const data = await body(req);
+    const settings = {
+      maxUploadMB: Number(data.maxUploadMB),
+      editWindowMinutes: Number(data.editWindowMinutes),
+      maxGroupMembers: Number(data.maxGroupMembers),
+      maxMessageLength: Number(data.maxMessageLength),
+      maxAttachmentsPerMessage: Number(data.maxAttachmentsPerMessage),
+      messageHistoryLimit: Number(data.messageHistoryLimit),
+      maxConversationsPerUser: Number(data.maxConversationsPerUser),
+      maxGameSaveKB: Number(data.maxGameSaveKB),
+      allowFileUploads: Boolean(data.allowFileUploads),
+      sensitiveWordSource: data.sensitiveWordSource === 'default' ? 'default' : 'custom',
+      sensitiveWords: String(data.sensitiveWords || '').split(/[\n,，]/).map(word => word.trim()).filter(Boolean),
+      sensitiveWordMode: data.sensitiveWordMode === 'reject' ? 'reject' : 'mask',
+      notebookMaxConcurrent: Number(data.notebookMaxConcurrent),
+      notebookMemoryMB: Number(data.notebookMemoryMB),
+      notebookCpuMilli: Number(data.notebookCpuMilli),
+      notebookStorageMB: Number(data.notebookStorageMB),
+      notebookQuotaEnabled: Boolean(data.notebookQuotaEnabled),
+      notebookIdleMinutes: Number(data.notebookIdleMinutes)
+    };
+    const ranges = {
+      maxUploadMB: [1, Number.MAX_SAFE_INTEGER, '上传上限'],
+      editWindowMinutes: [0, Number.MAX_SAFE_INTEGER, '编辑时限'],
+      maxGroupMembers: [2, Number.MAX_SAFE_INTEGER, '聊天组人数'],
+      maxMessageLength: [1, Number.MAX_SAFE_INTEGER, '消息字数'],
+      maxAttachmentsPerMessage: [1, Number.MAX_SAFE_INTEGER, '附件数量'],
+      messageHistoryLimit: [1, Number.MAX_SAFE_INTEGER, '历史消息数量'],
+      maxConversationsPerUser: [1, Number.MAX_SAFE_INTEGER, '聊天数量'],
+      maxGameSaveKB: [1, Number.MAX_SAFE_INTEGER, '游戏存档大小'],
+      notebookMaxConcurrent: [1, 3, 'Python 同时运行人数'],
+      notebookMemoryMB: [256, 1024, 'Python 容器内存'],
+      notebookCpuMilli: [250, 2000, 'Python 容器 CPU'],
+      notebookStorageMB: [256, 4096, 'Python 存档额度'],
+      notebookIdleMinutes: [10, 240, 'Python 闲置停止时间']
+    };
+    for (const [key, [min, max, label]] of Object.entries(ranges)) {
+      if (!Number.isSafeInteger(settings[key]) || settings[key] < min || settings[key] > max) return json(res, 400, { error: `${label}必须是 ${min}–${max} 之间的整数` });
+    }
+    state.settings = settings;
+    save(state);
+    return json(res, 200, { settings });
+  }
   if (url.pathname === '/api/users' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return; return json(res, 200, { users: state.users.map(publicUser) });
   }
@@ -306,20 +454,38 @@ async function api(req, res, url) {
     if (data.driveQuotaMB !== undefined) { const quota = Number(data.driveQuotaMB); if (!Number.isSafeInteger(quota) || quota < 0) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' }); target.driveQuotaMB = quota; }
     if (data.password) { if (String(data.password).length < 10) return json(res, 400, { error: '密码至少 10 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
+    if (!target.active || !allowed(target, 'accessNotebook')) { closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); }
     save(state); return json(res, 200, { user: publicUser(target) });
   }
   if (match && req.method === 'DELETE') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return; const index = state.users.findIndex(user => user.id === match[1]); if (index < 0) return json(res, 404, { error: '用户不存在' }); const target = state.users[index];
     if (target.id === admin.id) return json(res, 400, { error: '不能删除当前登录的管理员账号' });
     if (target.role === 'admin' && target.active && state.users.filter(user => user.role === 'admin' && user.active).length <= 1) return json(res, 400, { error: '必须保留至少一个启用的管理员' });
-    state.users.splice(index, 1); state.sessions = state.sessions.filter(session => session.userId !== target.id); state.conversations.forEach(item => { item.memberIds = item.memberIds.filter(id => id !== target.id); if (item.createdBy === target.id) item.createdBy = null; }); state.conversations = state.conversations.filter(item => item.memberIds.length >= 2); save(state); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4001, 'account deleted'); }); broadcast({ type: 'conversation-created' }); return json(res, 200, { ok: true });
+    state.users.splice(index, 1); state.sessions = state.sessions.filter(session => session.userId !== target.id); state.conversations.forEach(item => { item.memberIds = item.memberIds.filter(id => id !== target.id); if (item.createdBy === target.id) item.createdBy = null; }); state.conversations = state.conversations.filter(item => item.memberIds.length >= 2); save(state); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4001, 'account deleted'); }); closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); broadcast({ type: 'conversation-created' }); return json(res, 200, { ok: true });
   }
   return json(res, 404, { error: '接口不存在' });
 }
 
+async function proxyNotebookHttp(req, res) {
+  const user = currentUser(req);
+  if (!user) return json(res, 401, { error: '请先登录' });
+  if (!allowed(user, 'accessNotebook')) return json(res, 403, { error: '此账号不能使用 Python 实验室' });
+  const status = await notebookCtl('status', user.id);
+  if (!status.running || !status.ip || !status.token) return json(res, 503, { error: 'Python 环境尚未启动，请返回 Python 实验室启动' });
+  notebookActivity.set(user.id, Date.now());
+  const target = `http://${status.ip}:8888`;
+  const headers = { authorization: `token ${status.token}` };
+  if (req.headers.origin) headers.origin = target;
+  notebookProxy.web(req, res, { target, headers }, error => {
+    console.error('Notebook HTTP proxy error:', error.message);
+    if (!res.headersSent) json(res, 502, { error: 'Python 环境连接失败，请稍后重试' });
+    else res.destroy(error);
+  });
+}
+
 function staticFile(req, res, url) {
   const clean = url.pathname === '/' ? '/index.html' : url.pathname;
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|chat|admin|drive|learning)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/');
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|chat|admin|drive|learning|python)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/');
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }
@@ -335,7 +501,7 @@ function staticFile(req, res, url) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  try { if (url.pathname.startsWith('/api/')) await api(req, res, url); else staticFile(req, res, url); }
+  try { if (url.pathname.startsWith('/api/')) await api(req, res, url); else if (url.pathname.startsWith('/python/session/')) await proxyNotebookHttp(req, res); else staticFile(req, res, url); }
   catch (error) { console.error(error); if (!res.headersSent) json(res, 400, { error: error.message || '请求失败' }); }
 });
 
@@ -344,9 +510,30 @@ const broadcast = (data, conversationId = null) => {
   const payload = JSON.stringify(data);
   wss.clients.forEach(client => { if (client.readyState === 1 && (!conversationId || conversationFor(conversationId, client.user))) client.send(payload); });
 };
-server.on('upgrade', (req, socket, head) => {
-  const user = currentUser(req); if (new URL(req.url, 'http://localhost').pathname !== '/chat-socket' || !user || !allowed(user, 'accessChat')) return socket.destroy();
-  wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+server.on('upgrade', async (req, socket, head) => {
+  try {
+    const pathname = new URL(req.url, 'http://localhost').pathname;
+    const user = currentUser(req);
+    if (pathname === '/chat-socket') {
+      if (!user || !allowed(user, 'accessChat')) return socket.destroy();
+      return wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+    }
+    if (pathname.startsWith('/python/session/')) {
+      if (!user || !allowed(user, 'accessNotebook')) return socket.destroy();
+      const status = await notebookCtl('status', user.id);
+      if (!status.running || !status.ip || !status.token) return socket.destroy();
+      trackNotebookSocket(user, cookies(req).session, socket);
+      const target = `http://${status.ip}:8888`;
+      return notebookProxy.ws(req, socket, head, { target, headers: { origin: target, authorization: `token ${status.token}` } }, error => {
+        console.error('Notebook WebSocket proxy error:', error.message);
+        socket.destroy();
+      });
+    }
+    socket.destroy();
+  } catch (error) {
+    console.error('WebSocket upgrade error:', error.message);
+    socket.destroy();
+  }
 });
 wss.on('connection', (ws, req) => {
   const user = currentUser(req); ws.user = user; ws.send(JSON.stringify({ type: 'ready', user: publicUser(user) }));
@@ -367,7 +554,39 @@ wss.on('connection', (ws, req) => {
   });
 });
 
+let notebookCleanupRunning = false;
+async function cleanupIdleNotebooks() {
+  if (notebookCleanupRunning) return;
+  notebookCleanupRunning = true;
+  try {
+    const now = Date.now();
+    for (const [userId, lastActivity] of notebookActivity) {
+      const user = state.users.find(item => item.id === userId && item.active);
+      const sockets = notebookSockets.get(userId);
+      if (sockets) {
+        for (const [socket, token] of sockets) {
+          const session = state.sessions.find(item => item.token === token && item.userId === userId && new Date(item.expiresAt) > new Date());
+          if (!session || !user || !allowed(user, 'accessNotebook')) socket.destroy();
+        }
+      }
+      const idleMs = notebookConfig().idleMinutes * 60_000;
+      if (!user || !allowed(user, 'accessNotebook') || now - lastActivity >= idleMs) {
+        closeNotebookSockets(userId);
+        try { await stopNotebook(userId); }
+        catch (error) { console.error('Idle Notebook stop error:', error.message); }
+      }
+    }
+  } finally {
+    notebookCleanupRunning = false;
+  }
+}
+setInterval(cleanupIdleNotebooks, 60_000).unref();
+
 server.listen(PORT, HOST, () => {
   console.log(`Polynomial Server: http://${HOST}:${PORT}`);
   if ((process.env.ADMIN_PASSWORD || 'change-me-now') === 'change-me-now') console.warn('警告：请在首次部署前设置 ADMIN_PASSWORD。');
+  Promise.all(state.users.map(async user => {
+    try { const status = await notebookCtl('status', user.id); if (status.running) notebookActivity.set(user.id, Date.now()); }
+    catch (error) { console.error('Notebook status bootstrap error:', error.message); }
+  })).catch(error => console.error(error));
 });

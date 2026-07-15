@@ -1,9 +1,101 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理后台 · Polynomial Server</title><link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/enhancements.css"></head><body><header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><nav class="nav-links" style="display:flex"><a href="/announcements.html">公告</a><a href="/chat.html">聊天</a><button class="button secondary" id="logout">退出</button></nav></div></header>
-<main class="wrap"><div class="page-title"><div class="eyebrow">Administration</div><h1>管理后台</h1><p>当前管理员：<span id="adminName">...</span>。管理账号、公告、聊天与服务器参数。</p></div><div class="admin-layout"><form class="panel" id="createUser"><h2>创建账号</h2><div class="field"><label>登录账号</label><input id="newUsername" minlength="3" maxlength="24" required></div><div class="field"><label>显示名称</label><input id="newDisplayName" maxlength="30" required></div><div class="field"><label>初始密码（至少 10 位）</label><input id="newPassword" type="password" minlength="10" required></div><div class="field"><label>权限</label><select id="newRole"><option value="member">成员</option><option value="admin">管理员</option></select></div><div class="notice" id="adminNotice"></div><button class="button" style="width:100%">创建账号</button></form><section class="panel"><h2>已有账号</h2><div id="userList"></div></section></div>
-<section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Changelog</div><h2>更新公告管理</h2></div><button class="button" id="newAnnouncement" type="button">发布公告</button></div><div id="adminAnnouncementList"></div></section>
-<form class="panel settings-panel" id="settingsForm"><div class="section-head"><div><div class="eyebrow">Settings</div><h2>参数设置</h2></div><p>所有限制均以这里保存的数值为准。</p></div><div class="settings-grid"><div class="field"><label>允许上传文件</label><select id="allowFileUploads"><option value="true">允许</option><option value="false">关闭</option></select></div><div class="field"><label>单文件上传上限（MB）</label><input id="maxUploadMB" type="number" min="1" required></div><div class="field"><label>每条消息附件上限</label><input id="maxAttachmentsPerMessage" type="number" min="1" required></div><div class="field"><label>单条消息最多字数</label><input id="maxMessageLength" type="number" min="1" required></div><div class="field"><label>消息编辑时限（分钟，0为不限）</label><input id="editWindowMinutes" type="number" min="0" required></div><div class="field"><label>每次载入历史消息数</label><input id="messageHistoryLimit" type="number" min="1" required></div><div class="field"><label>聊天组人数上限</label><input id="maxGroupMembers" type="number" min="2" required></div><div class="field"><label>每位用户创建聊天上限</label><input id="maxConversationsPerUser" type="number" min="1" required></div><div class="field"><label>单个游戏存档上限（KB）</label><input id="maxGameSaveKB" type="number" min="1" required></div><div class="field"><label>敏感词处理</label><select id="sensitiveWordMode"><option value="mask">替换为星号</option><option value="reject">拒绝发送</option></select></div><div class="field settings-wide"><label>敏感词（每行或逗号分隔）</label><textarea id="sensitiveWords" rows="5" placeholder="敏感词一&#10;敏感词二"></textarea></div></div><div class="notice" id="settingsNotice"></div><button class="button">保存参数</button></form>
-<details class="panel admin-section chat-record-manager"><summary><div><div class="eyebrow">Moderation</div><h2>聊天记录管理</h2><p>点击展开；支持搜索和分页，不再一次显示全部记录。</p></div><span>展开管理</span></summary><div class="record-toolbar"><input id="messageSearch" placeholder="搜索用户或消息内容"><button class="button secondary" id="searchMessages" type="button">搜索</button></div><div id="adminMessageList"></div><div class="record-pages"><button class="button secondary" id="prevMessagePage" type="button">上一页</button><span id="messagePageInfo">第 1 页</span><button class="button secondary" id="nextMessagePage" type="button">下一页</button></div></details></main>
-<section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Storage</div><h2>网盘总览</h2><p>管理员可查看、下载或删除任何用户及公共盘文件。</p></div><button class="button secondary" id="refreshAdminDrive" type="button">刷新</button></div><div class="admin-drive-list" id="adminDriveList"></div></section>
-<dialog id="editUserDialog" class="dialog"><form method="dialog" id="editUserForm"><div class="dialog-head"><h2>修改用户</h2><button value="cancel">×</button></div><input id="editUserId" type="hidden"><div class="field"><label>登录账号</label><input id="editUsername" required></div><div class="field"><label>显示名称</label><input id="editDisplayName" required></div><div class="field"><label>新密码（留空不修改）</label><input id="editPassword" type="password" minlength="10"></div><div class="field"><label>权限</label><select id="editRole"><option value="member">成员</option><option value="admin">管理员</option></select></div><div class="field"><label>状态</label><select id="editActive"><option value="true">启用</option><option value="false">禁用</option></select></div><div class="field"><label>私人网盘额度（MB）</label><input id="editDriveQuotaMB" type="number" min="0" required></div><div class="field"><label>功能权限（管理员始终拥有全部权限）</label><div class="permission-grid" id="editPermissions"><label><input type="checkbox" data-permission="accessChat">进入聊天</label><label><input type="checkbox" data-permission="postLobby">大厅发言</label><label><input type="checkbox" data-permission="createGroups">创建聊天组</label><label><input type="checkbox" data-permission="createDirect">创建私聊</label><label><input type="checkbox" data-permission="viewUsers">查看用户信息</label><label><input type="checkbox" data-permission="driveEnabled">使用私人网盘</label><label><input type="checkbox" data-permission="viewPublicDrive">查看公共盘</label><label><input type="checkbox" data-permission="uploadPublicDrive">上传公共盘</label><label><input type="checkbox" data-permission="downloadPublicDrive">下载公共盘</label><label><input type="checkbox" data-permission="accessLearning">访问网络学习</label></div></div><div class="notice" id="editUserNotice"></div><div class="dialog-actions"><button class="button">保存修改</button><button class="button danger" type="button" id="deleteUser">删除账户</button></div></form></dialog>
-<dialog id="announcementDialog" class="dialog"><form method="dialog" id="announcementForm"><div class="dialog-head"><h2>编辑公告</h2><button value="cancel">×</button></div><input id="announcementId" type="hidden"><div class="field"><label>标题</label><input id="announcementTitle" maxlength="100" required></div><div class="field"><label>内容</label><textarea id="announcementContent" rows="9" maxlength="10000" required></textarea></div><div class="notice" id="announcementNotice"></div><button class="button">保存公告</button></form></dialog>
-<script src="/assets/site.js"></script><script src="/assets/admin-permissions.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>管理后台 · Polynomial Server</title>
+  <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/enhancements.css">
+  <link rel="stylesheet" href="/assets/admin-settings.css">
+</head>
+<body>
+  <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><button class="menu-button" id="menuButton">菜单</button><nav class="nav-links" id="navLinks"></nav></div></header>
+  <main class="wrap admin-page">
+    <div class="page-title"><div class="eyebrow">Administration</div><h1>管理后台</h1><p>当前管理员：<span id="adminName">...</span>。所有设置按照功能独立管理。</p></div>
+
+    <div class="admin-layout">
+      <form class="panel" id="createUser"><h2>创建账号</h2><div class="field"><label>登录账号</label><input id="newUsername" minlength="3" maxlength="24" required></div><div class="field"><label>显示名称</label><input id="newDisplayName" maxlength="30" required></div><div class="field"><label>初始密码（至少 10 位）</label><input id="newPassword" type="password" minlength="10" required></div><div class="field"><label>账号角色</label><select id="newRole"><option value="member">成员</option><option value="admin">管理员</option></select></div><div class="notice" id="adminNotice"></div><button class="button admin-primary-action">创建账号</button></form>
+      <section class="panel"><div class="section-head"><div><div class="eyebrow">Accounts</div><h2>已有账号</h2></div></div><div id="userList"></div></section>
+    </div>
+
+    <section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Changelog</div><h2>更新公告管理</h2></div><button class="button" id="newAnnouncement" type="button">发布公告</button></div><div id="adminAnnouncementList"></div></section>
+
+    <form class="panel settings-panel" id="settingsForm">
+      <div class="section-head"><div><div class="eyebrow">Settings directory</div><h2>功能参数设置</h2><p>点击右侧箭头展开对应功能；每项设置独占一行。</p></div></div>
+      <div class="settings-directory">
+        <details class="settings-category" open>
+          <summary><div><span class="category-icon">⌁</span><span><strong>聊天与协作</strong><small>消息、附件、群组与内容管理</small></span></div><span class="category-arrow">⌄</span></summary>
+          <div class="settings-list">
+            <label class="setting-row"><span><strong>每条消息附件上限</strong><small>一条聊天消息最多携带的文件数量</small></span><input id="maxAttachmentsPerMessage" type="number" min="1" required></label>
+            <label class="setting-row"><span><strong>单条消息最多字数</strong><small>超过限制的消息不会完整保存</small></span><input id="maxMessageLength" type="number" min="1" required></label>
+            <label class="setting-row"><span><strong>消息编辑时限</strong><small>单位为分钟，0 表示不限时</small></span><input id="editWindowMinutes" type="number" min="0" required></label>
+            <label class="setting-row"><span><strong>历史消息载入数量</strong><small>每次打开聊天默认读取的消息数</small></span><input id="messageHistoryLimit" type="number" min="1" required></label>
+            <label class="setting-row"><span><strong>聊天组人数上限</strong><small>单个聊天组允许的最多成员数</small></span><input id="maxGroupMembers" type="number" min="2" required></label>
+            <label class="setting-row"><span><strong>每位用户聊天数量上限</strong><small>限制用户可创建的聊天组和私聊数量</small></span><input id="maxConversationsPerUser" type="number" min="1" required></label>
+            <label class="setting-row"><span><strong>敏感词词库</strong><small>选择自定义或服务器内置开源词库</small></span><select id="sensitiveWordSource"><option value="custom">自定义词库</option><option value="default">默认开源词库</option></select></label>
+            <label class="setting-row"><span><strong>敏感词处理方式</strong><small>命中后替换内容或拒绝发送</small></span><select id="sensitiveWordMode"><option value="mask">替换为星号</option><option value="reject">拒绝发送</option></select></label>
+            <label class="setting-row setting-row-textarea"><span><strong>自定义敏感词</strong><small>每行一个，也可以使用逗号分隔</small></span><textarea id="sensitiveWords" rows="6" placeholder="敏感词一&#10;敏感词二"></textarea></label>
+          </div>
+        </details>
+
+        <details class="settings-category">
+          <summary><div><span class="category-icon">⇧</span><span><strong>文件上传与网盘</strong><small>聊天附件和网盘文件的公共限制</small></span></div><span class="category-arrow">⌄</span></summary>
+          <div class="settings-list">
+            <label class="setting-row"><span><strong>允许上传文件</strong><small>关闭后聊天和网盘都不能上传新文件</small></span><select id="allowFileUploads"><option value="true">允许</option><option value="false">关闭</option></select></label>
+            <label class="setting-row"><span><strong>单文件上传上限</strong><small>单位为 MB，聊天和网盘共用</small></span><input id="maxUploadMB" type="number" min="1" required></label>
+          </div>
+        </details>
+
+        <details class="settings-category">
+          <summary><div><span class="category-icon">✦</span><span><strong>小游戏</strong><small>游戏存档与后续游戏功能参数</small></span></div><span class="category-arrow">⌄</span></summary>
+          <div class="settings-list"><label class="setting-row"><span><strong>单个游戏存档上限</strong><small>单位为 KB，限制每个账号的单项游戏存档</small></span><input id="maxGameSaveKB" type="number" min="1" required></label></div>
+        </details>
+
+        <details class="settings-category">
+          <summary><div><span class="category-icon">&gt;_</span><span><strong>Python 实验室</strong><small>容器资源、磁盘配额与自动停止</small></span></div><span class="category-arrow">⌄</span></summary>
+          <div class="settings-list">
+            <label class="setting-row"><span><strong>同时运行人数</strong><small>当前服务器安全范围为 1–3 人</small></span><input id="notebookMaxConcurrent" type="number" min="1" max="3" required></label>
+            <label class="setting-row"><span><strong>每个容器内存</strong><small>单位为 MB，可设置 256–1024</small></span><input id="notebookMemoryMB" type="number" min="256" max="1024" step="256" required></label>
+            <label class="setting-row"><span><strong>每个容器 CPU</strong><small>单位为 milli-CPU，1000 表示 1 核</small></span><input id="notebookCpuMilli" type="number" min="250" max="2000" step="250" required></label>
+            <label class="setting-row"><span><strong>Notebook 存档上限</strong><small>单位为 MB；现有存档盘只能扩大，不能直接缩小</small></span><input id="notebookStorageMB" type="number" min="256" max="4096" step="256" required></label>
+            <label class="setting-row"><span><strong>新用户存档硬配额</strong><small>开启后单个账号无法占满服务器磁盘</small></span><select id="notebookQuotaEnabled"><option value="true">开启</option><option value="false">关闭</option></select></label>
+            <label class="setting-row"><span><strong>闲置自动停止</strong><small>单位为分钟，可设置 10–240</small></span><input id="notebookIdleMinutes" type="number" min="10" max="240" required></label>
+          </div>
+        </details>
+      </div>
+      <div class="settings-footer"><div class="notice" id="settingsNotice"></div><button class="button" type="submit">保存全部参数</button></div>
+    </form>
+
+    <section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Python runtime</div><h2>Python 运行状态</h2><p>查看当前账号容器，并可由管理员强制停止。</p></div><button class="button secondary" id="refreshNotebooks" type="button">刷新</button></div><div id="adminNotebookList"></div></section>
+
+    <details class="panel admin-section chat-record-manager"><summary><div><div class="eyebrow">Moderation</div><h2>聊天记录管理</h2><p>支持搜索和分页，不会一次显示全部记录。</p></div><span class="category-arrow">⌄</span></summary><div class="record-toolbar"><input id="messageSearch" placeholder="搜索用户或消息内容"><button class="button secondary" id="searchMessages" type="button">搜索</button></div><div id="adminMessageList"></div><div class="record-pages"><button class="button secondary" id="prevMessagePage" type="button">上一页</button><span id="messagePageInfo">第 1 页</span><button class="button secondary" id="nextMessagePage" type="button">下一页</button></div></details>
+
+    <section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Storage</div><h2>网盘总览</h2><p>管理员可查看、下载或删除任何用户及公共盘文件。</p></div><button class="button secondary" id="refreshAdminDrive" type="button">刷新</button></div><div class="admin-drive-list" id="adminDriveList"></div></section>
+  </main>
+
+  <dialog id="editUserDialog" class="dialog user-settings-dialog">
+    <form method="dialog" id="editUserForm">
+      <div class="dialog-head"><div><div class="eyebrow">Account settings</div><h2>修改用户</h2></div><button value="cancel" aria-label="关闭">×</button></div>
+      <input id="editUserId" type="hidden">
+      <div class="user-basic-settings">
+        <label class="user-setting-row"><span><strong>登录账号</strong><small>3–24 位字母、数字、_ 或 -</small></span><input id="editUsername" required></label>
+        <label class="user-setting-row"><span><strong>显示名称</strong><small>在聊天和管理后台显示</small></span><input id="editDisplayName" required></label>
+        <label class="user-setting-row"><span><strong>新密码</strong><small>留空表示不修改</small></span><input id="editPassword" type="password" minlength="10"></label>
+        <label class="user-setting-row"><span><strong>账号角色</strong><small>管理员始终拥有全部功能权限</small></span><select id="editRole"><option value="member">成员</option><option value="admin">管理员</option></select></label>
+        <label class="user-setting-row"><span><strong>账号状态</strong><small>停用后会立即退出所有设备</small></span><select id="editActive"><option value="true">启用</option><option value="false">停用</option></select></label>
+        <label class="user-setting-row"><span><strong>私人网盘额度</strong><small>单位为 MB</small></span><input id="editDriveQuotaMB" type="number" min="0" required></label>
+      </div>
+
+      <div class="permission-directory" id="editPermissions">
+        <details class="permission-category" open><summary><span><strong>聊天与成员</strong><small>进入聊天、发言和创建会话</small></span><span class="category-arrow">⌄</span></summary><div class="permission-list"><label><span>进入聊天</span><input type="checkbox" data-permission="accessChat"></label><label><span>在大厅发言</span><input type="checkbox" data-permission="postLobby"></label><label><span>创建聊天组</span><input type="checkbox" data-permission="createGroups"></label><label><span>创建私聊</span><input type="checkbox" data-permission="createDirect"></label><label><span>查看用户信息</span><input type="checkbox" data-permission="viewUsers"></label></div></details>
+        <details class="permission-category"><summary><span><strong>文件网盘</strong><small>私人盘、公共盘和下载权限</small></span><span class="category-arrow">⌄</span></summary><div class="permission-list"><label><span>使用私人网盘</span><input type="checkbox" data-permission="driveEnabled"></label><label><span>查看公共盘</span><input type="checkbox" data-permission="viewPublicDrive"></label><label><span>上传公共盘</span><input type="checkbox" data-permission="uploadPublicDrive"></label><label><span>下载公共盘</span><input type="checkbox" data-permission="downloadPublicDrive"></label></div></details>
+        <details class="permission-category"><summary><span><strong>学习与应用</strong><small>课程、小游戏和 Python 环境</small></span><span class="category-arrow">⌄</span></summary><div class="permission-list"><label><span>访问网络学习</span><input type="checkbox" data-permission="accessLearning"></label><label><span>使用小游戏</span><input type="checkbox" data-permission="accessGames"></label><label><span>使用 Python 实验室</span><input type="checkbox" data-permission="accessNotebook"></label></div></details>
+      </div>
+      <div class="notice" id="editUserNotice"></div><div class="dialog-actions"><button class="button" type="submit">保存修改</button><button class="button danger" type="button" id="deleteUser">删除账户</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="announcementDialog" class="dialog"><form method="dialog" id="announcementForm"><div class="dialog-head"><h2>编辑公告</h2><button value="cancel">×</button></div><input id="announcementId" type="hidden"><div class="field"><label>标题</label><input id="announcementTitle" maxlength="100" required></div><div class="field"><label>内容</label><textarea id="announcementContent" rows="9" maxlength="10000" required></textarea></div><div class="notice" id="announcementNotice"></div><button class="button">保存公告</button></form></dialog>
+  <script src="/assets/site.js"></script><script src="/assets/admin-permissions.js"></script><script src="/assets/notebook-admin.js"></script>
+</body>
+</html>
