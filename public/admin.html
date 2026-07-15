@@ -18,7 +18,7 @@
       <section class="panel"><div class="section-head"><div><div class="eyebrow">Accounts</div><h2>已有账号</h2></div></div><div id="userList"></div></section>
     </div>
 
-    <section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Changelog</div><h2>更新公告管理</h2></div><button class="button" id="newAnnouncement" type="button">发布公告</button></div><div id="adminAnnouncementList"></div></section>
+    <details class="panel admin-section announcement-manager"><summary><div><div class="eyebrow">Changelog</div><h2>更新公告管理</h2><p>点击展开公告、搜索内容或发布更新。</p></div><span class="category-arrow">⌄</span></summary><div class="announcement-manager-body"><div class="record-toolbar"><input id="announcementSearch" type="search" placeholder="搜索公告标题或正文内容"><button class="button secondary" id="searchAnnouncements" type="button">搜索</button><button class="button" id="newAnnouncement" type="button">发布公告</button></div><div id="adminAnnouncementList"></div></div></details>
 
     <form class="panel settings-panel" id="settingsForm">
       <div class="section-head"><div><div class="eyebrow">Settings directory</div><h2>功能参数设置</h2><p>点击右侧箭头展开对应功能；每项设置独占一行。</p></div></div>

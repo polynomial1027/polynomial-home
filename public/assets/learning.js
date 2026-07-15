@@ -25,6 +25,8 @@ async function initLearningLab() {
   updateProgress();
   if (new URLSearchParams(location.search).get('lab') === '1') le('codeWorkspace').scrollIntoView({ behavior: 'smooth', block: 'start' });
   le('courseMenu').onclick = () => le('chapterList').classList.toggle('collapsed');
+  le('openDraftLibrary').onclick = openDraftLibrary;
+  le('exportAllDrafts').onclick = exportAllDrafts;
   le('runCode').onclick = runCode;
   le('resetCode').onclick = resetEditor;
   le('openNotebook').onclick = openFullNotebook;
@@ -39,6 +41,41 @@ async function initLearningLab() {
 function renderDirectory() {
   le('chapterList').innerHTML = learning.course.chapters.map(chapter => `<details class="course-chapter" ${chapter.lessons.some(item => item.id === learning.currentLessonId) ? 'open' : ''}><summary><div><span>CHAPTER ${chapter.number}</span><strong>${esc(chapter.title)}</strong></div><small>${chapter.lessons.length} 节</small></summary><div class="chapter-lessons">${chapter.lessons.map((lesson, index) => `<button class="lesson-link ${lesson.id === learning.currentLessonId ? 'active' : ''}" data-lesson="${lesson.id}"><span class="lesson-state">${learning.completed.includes(lesson.id) ? '✓' : '○'}</span><span>${index + 1}. ${esc(lesson.title)}</span></button>`).join('')}</div></details>`).join('');
   document.querySelectorAll('[data-lesson]').forEach(button => button.onclick = () => showLesson(button.dataset.lesson));
+}
+
+function draftEntries() {
+  return allLessons().filter(lesson => lesson.assignment && String(learning.assignmentDrafts[lesson.assignment.id] || '').trim()).map(lesson => ({ lesson, assignment: lesson.assignment, code: learning.assignmentDrafts[lesson.assignment.id] }));
+}
+
+function openDraftLibrary() {
+  renderDraftLibrary();
+  le('draftLibraryDialog')?.showModal();
+}
+
+function renderDraftLibrary() {
+  const entries = draftEntries(), list = le('draftLibraryList');
+  le('draftLibraryCount').textContent = `${entries.length} 份草稿`;
+  le('exportAllDrafts').disabled = entries.length === 0;
+  list.innerHTML = entries.length ? entries.map(({ lesson, assignment, code }) => `<article class="draft-library-item"><div class="draft-library-meta"><div><span>第 ${lesson.chapter.number} 章 · ${esc(lesson.title)}</span><strong>${esc(assignment.title)}</strong></div><div class="draft-library-actions"><button class="button secondary" data-open-draft="${assignment.id}" type="button">继续编辑</button><button class="button secondary" data-export-draft="${assignment.id}" type="button">导出 .py</button></div></div><details><summary>查看保存的代码</summary><pre><code>${esc(code)}</code></pre></details></article>`).join('') : '<div class="empty">当前账号还没有保存作业草稿。进入作业后点击“保存草稿”，这里就会出现记录。</div>';
+  list.querySelectorAll('[data-open-draft]').forEach(button => button.onclick = () => {
+    const entry = entries.find(item => item.assignment.id === button.dataset.openDraft); if (!entry) return;
+    le('draftLibraryDialog').close(); showLesson(entry.lesson.id); setTimeout(() => le('assignmentPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  });
+  list.querySelectorAll('[data-export-draft]').forEach(button => button.onclick = () => {
+    const entry = entries.find(item => item.assignment.id === button.dataset.exportDraft); if (!entry) return;
+    downloadText(`${entry.assignment.id}-solution.py`, entry.code, 'text/x-python;charset=utf-8');
+  });
+}
+
+function exportAllDrafts() {
+  const entries = draftEntries(); if (!entries.length) return;
+  const payload = { version: 1, courseId: learning.course.id, courseTitle: learning.course.title, username: learning.user?.username || null, exportedAt: new Date().toISOString(), drafts: entries.map(({ lesson, assignment, code }) => ({ assignmentId: assignment.id, assignmentTitle: assignment.title, lessonId: lesson.id, lessonTitle: lesson.title, chapter: lesson.chapter.number, code })) };
+  downloadText(`python-course-drafts-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+}
+
+function downloadText(filename, content, type) {
+  const url = URL.createObjectURL(new Blob([content], { type })), link = document.createElement('a');
+  link.href = url; link.download = filename; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function showLesson(id) {

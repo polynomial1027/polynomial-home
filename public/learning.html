@@ -23,6 +23,7 @@
         <div class="directory-head"><div><span>COURSE 01</span><h2 id="courseTitle">Python 基础</h2></div><button id="courseMenu" type="button">目录</button></div>
         <progress id="courseProgress" max="100" value="0"></progress>
         <small id="progressLabel">正在读取课程…</small>
+        <button class="draft-library-button" id="openDraftLibrary" type="button">我的作业草稿</button>
         <div id="chapterList" class="chapter-list"></div>
       </aside>
 
@@ -43,6 +44,7 @@
       </aside>
     </div>
   </main>
+  <dialog class="draft-library-dialog" id="draftLibraryDialog"><div class="draft-library-head"><div><div class="eyebrow">My drafts</div><h2>我的作业草稿</h2><p>查看、继续编辑或导出当前账号保存的代码。</p></div><form method="dialog"><button class="dialog-close" aria-label="关闭" type="submit">×</button></form></div><div class="draft-library-toolbar"><span id="draftLibraryCount">0 份草稿</span><button class="button secondary" id="exportAllDrafts" type="button">导出全部 JSON</button></div><div class="draft-library-list" id="draftLibraryList"></div></dialog>
   <script src="/assets/site.js"></script>
   <script src="/assets/learning.js"></script>
 </body>
