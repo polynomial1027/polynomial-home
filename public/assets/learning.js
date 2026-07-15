@@ -1,6 +1,6 @@
 const learning = {
-  course: null, completed: [], lessonNotes: {}, currentLessonId: null, currentAssignment: null,
-  canRun: false, config: {}, drafts: new Map(), records: new Map(), running: false
+  course: null, completed: [], lessonNotes: {}, assignmentDrafts: {}, currentLessonId: null, currentAssignment: null,
+  canRun: false, config: {}, drafts: new Map(), records: new Map(), running: false, assignmentTestPassed: false
 };
 const le = id => document.getElementById(id);
 
@@ -14,6 +14,7 @@ async function initLearningLab() {
   learning.course = courseData.course; learning.canRun = courseData.canRun; learning.config = courseData.config || {};
   learning.completed = progressData.progress?.completedLessons || [];
   learning.lessonNotes = progressData.progress?.lessonNotes || {};
+  learning.assignmentDrafts = progressData.progress?.assignmentDrafts || {};
   const firstLessonId = allLessons()[0]?.id;
   learning.currentLessonId = null;
   renderDirectory(); showLesson(firstLessonId); showLimits();
@@ -40,9 +41,11 @@ function renderDirectory() {
 
 function showLesson(id) {
   if (learning.currentLessonId && le('codeEditor')) learning.drafts.set(learning.currentLessonId, le('codeEditor').value);
+  if (learning.currentAssignment && le('assignmentEditor')) learning.assignmentDrafts[learning.currentAssignment.id] = le('assignmentEditor').value;
   learning.currentLessonId = id;
   const lesson = currentLesson(); if (!lesson) return;
   learning.currentAssignment = lesson.assignment || null;
+  learning.assignmentTestPassed = false;
   const blocks = lesson.body.map((block, index) => {
     if (block.type === 'code') return `<div class="lesson-code"><button class="try-code" data-example="${index}" type="button">在右侧运行</button><pre><code>${esc(block.code)}</code></pre></div>`;
     if (block.type === 'tip') return `<div class="lesson-tip">${esc(block.text)}</div>`;
@@ -58,6 +61,10 @@ function showLesson(id) {
   le('previousLesson').onclick = () => previous && showLesson(previous.id);
   le('nextLesson').onclick = () => next && showLesson(next.id);
   if (lesson.assignment) {
+    le('assignmentEditor').addEventListener('input', invalidateAssignmentTest);
+    le('assignmentEditor').addEventListener('keydown', event => { if (event.key === 'Tab') { event.preventDefault(); const editor = event.currentTarget, start = editor.selectionStart, end = editor.selectionEnd; editor.setRangeText('    ', start, end, 'end'); } });
+    le('saveAssignmentDraft').onclick = saveAssignmentDraft;
+    le('testAssignment').onclick = testAssignment;
     le('submitAssignment').onclick = submitAssignment;
     loadRecords(lesson.assignment.id, true);
   }
@@ -65,7 +72,8 @@ function showLesson(id) {
 }
 
 function assignmentHtml(assignment) {
-  return `<section class="lesson-assignment" id="assignmentPanel"><div class="assignment-head"><div><span class="assignment-badge">RANDOM TEST ASSIGNMENT</span><h3>${esc(assignment.title)}</h3><p>${esc(assignment.prompt)}</p></div></div><div class="assignment-controls"><label for="submissionVisibility">成绩记录</label><select id="submissionVisibility"><option value="private">仅自己可见</option><option value="public">公开通过状态和资源记录</option></select><button class="button" id="submitAssignment" type="button" ${learning.canRun ? '' : 'disabled'}>提交随机评测</button></div><div class="submission-records"><div class="records-title"><strong>作业记录</strong><small>随机数据在服务器生成</small></div><div class="record-list" id="assignmentRecords"><div class="empty">正在读取记录…</div></div></div></section>`;
+  const code = learning.assignmentDrafts[assignment.id] || assignment.starterCode;
+  return `<section class="lesson-assignment" id="assignmentPanel"><div class="assignment-head"><div><span class="assignment-badge">FUNCTION ASSIGNMENT</span><h3>${esc(assignment.title)}</h3><p>${esc(assignment.prompt)}</p><div class="assignment-rule">请保留指定的函数名称和参数，在函数中完成逻辑，并使用 <code>return</code> 返回要求的结果。不要读取输入或写死测试数据。</div></div></div><div class="assignment-editor-shell"><div class="assignment-editor-head"><span>Solution.py</span><small>独立作业编辑区 · 不受右侧示例影响</small></div><textarea id="assignmentEditor" class="assignment-editor" spellcheck="false">${esc(code)}</textarea><div class="assignment-test-result" id="assignmentTestResult"><span>修改代码后请先测试。通过页面测试后才能正式提交。</span></div><div class="assignment-actions"><button class="button secondary" id="saveAssignmentDraft" type="button">保存草稿</button><button class="button secondary" id="testAssignment" type="button" ${learning.canRun ? '' : 'disabled'}>测试</button><div class="assignment-submit-group"><button class="button assignment-submit" id="submitAssignment" type="button" disabled>提交</button><details class="submit-privacy"><summary title="选择成绩可见性">▾</summary><div><label><input type="radio" name="submissionVisibility" value="private" checked><span>不公开成绩</span></label><label><input type="radio" name="submissionVisibility" value="public"><span>公开通过状态、时间和内存</span></label></div></details></div></div></div><div class="submission-records"><div class="records-title"><strong>作业记录</strong><small>正式提交会使用新的隐藏随机数据</small></div><div class="record-list" id="assignmentRecords"><div class="empty">正在读取记录…</div></div></div></section>`;
 }
 
 function setEditor(code, context) {
@@ -79,8 +87,8 @@ function resetEditor(useDraft = true) {
   const lesson = currentLesson(); if (!lesson) return;
   const saved = useDraft ? learning.drafts.get(lesson.id) : null;
   const firstExample = lesson.body.find(block => block.type === 'code')?.code || 'print("开始练习")';
-  const code = saved ?? lesson.assignment?.starterCode ?? firstExample;
-  setEditor(code, lesson.assignment ? lesson.assignment.title : `${lesson.title} · 自由练习`);
+  const code = saved ?? firstExample;
+  setEditor(code, `${lesson.title} · 示例与自由练习`);
 }
 
 async function runCode() {
@@ -94,18 +102,58 @@ async function runCode() {
   finally { learning.running = false; le('runCode').disabled = false; le('runCode').textContent = '运行代码'; }
 }
 
-async function submitAssignment() {
+function invalidateAssignmentTest() {
+  learning.assignmentTestPassed = false;
+  const button = le('submitAssignment'); if (button) button.disabled = true;
+  button?.closest('.assignment-submit-group')?.classList.remove('ready');
+  const result = le('assignmentTestResult'); if (result) result.innerHTML = '<span>代码已经修改，请重新测试后再提交。</span>';
+}
+
+async function saveAssignmentDraft() {
+  const assignment = learning.currentAssignment; if (!assignment) return;
+  learning.assignmentDrafts[assignment.id] = le('assignmentEditor').value;
+  const button = le('saveAssignmentDraft'); button.disabled = true; button.textContent = '保存中…';
+  try { await saveProgress(); button.textContent = '已保存'; }
+  catch (error) { button.textContent = '保存失败'; le('assignmentTestResult').innerHTML = `<span class="test-fail">${esc(error.message)}</span>`; }
+  finally { setTimeout(() => { if (le('saveAssignmentDraft')) { le('saveAssignmentDraft').disabled = false; le('saveAssignmentDraft').textContent = '保存草稿'; } }, 900); }
+}
+
+async function testAssignment() {
   const assignment = learning.currentAssignment; if (!assignment || learning.running) return;
-  learning.running = true; const button = le('submitAssignment'); button.disabled = true; button.textContent = '随机评测中…';
+  const code = le('assignmentEditor').value, button = le('testAssignment');
+  learning.running = true; learning.assignmentTestPassed = false; le('submitAssignment').disabled = true; button.disabled = true; button.textContent = '测试中…';
+  le('assignmentTestResult').innerHTML = '<span>正在使用服务器生成的测试数据运行函数…</span>';
   try {
-    const data = await request(`/api/learning/assignments/${assignment.id}/submit`, { method: 'POST', body: JSON.stringify({ code: le('codeEditor').value, visibility: le('submissionVisibility').value }) });
-    showRunResult(data.result);
-    le('workspaceNotice').style.color = data.result.success ? 'var(--accent2)' : 'var(--danger)';
-    le('workspaceNotice').textContent = data.result.success ? `作业通过：${data.result.passed}/${data.result.total} 个隐藏测试。` : `尚未通过：${data.result.passed}/${data.result.total} 个隐藏测试。${data.result.error || ''}`;
+    const data = await request(`/api/learning/assignments/${assignment.id}/test`, { method: 'POST', body: JSON.stringify({ code }) });
+    learning.assignmentTestPassed = data.result.success;
+    le('submitAssignment').disabled = !data.result.success;
+    le('submitAssignment').closest('.assignment-submit-group').classList.toggle('ready', data.result.success);
+    renderAssignmentTest(data.result, data.cases || []);
+  } catch (error) { le('assignmentTestResult').innerHTML = `<span class="test-fail">${esc(error.message)}</span>`; }
+  finally { learning.running = false; button.disabled = false; button.textContent = '测试'; }
+}
+
+function renderAssignmentTest(result, cases) {
+  const status = result.success ? `<strong class="test-pass">测试通过 · ${result.passed}/${result.total}</strong>` : `<strong class="test-fail">测试未通过 · ${result.passed}/${result.total}</strong>`;
+  const metrics = `<span>${Number(result.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(result.memoryKB)}</span>`;
+  const rows = cases.map(item => `<div class="test-case"><b>测试 ${item.number}</b><code>参数：${esc(JSON.stringify(item.args))}</code><code>期望返回：${esc(JSON.stringify(item.expected))}</code></div>`).join('');
+  const error = result.error ? `<pre>${esc(result.error)}</pre>` : '';
+  le('assignmentTestResult').innerHTML = `<div class="test-summary">${status}<div>${metrics}</div></div>${error}<div class="test-cases">${rows}</div>`;
+}
+
+async function submitAssignment() {
+  const assignment = learning.currentAssignment; if (!assignment || learning.running || !learning.assignmentTestPassed) return;
+  const button = le('submitAssignment'), code = le('assignmentEditor').value;
+  const visibility = document.querySelector('[name="submissionVisibility"]:checked')?.value || 'private';
+  learning.running = true; button.disabled = true; button.textContent = '提交中…';
+  try {
+    const data = await request(`/api/learning/assignments/${assignment.id}/submit`, { method: 'POST', body: JSON.stringify({ code, visibility }) });
+    learning.assignmentDrafts[assignment.id] = code; await saveProgress();
+    renderAssignmentTest(data.result, []);
     if (data.result.success && !learning.completed.includes(learning.currentLessonId)) { learning.completed.push(learning.currentLessonId); await saveProgress(); if (le('toggleLesson')) le('toggleLesson').textContent = '取消完成标记'; }
     await loadRecords(assignment.id, true); updateProgress();
-  } catch (error) { showWorkspaceError(error.message); }
-  finally { learning.running = false; button.disabled = false; button.textContent = '提交随机评测'; }
+  } catch (error) { le('assignmentTestResult').innerHTML = `<span class="test-fail">${esc(error.message)}</span>`; }
+  finally { learning.running = false; button.disabled = !learning.assignmentTestPassed; button.textContent = '提交'; }
 }
 
 function showRunResult(result) {
@@ -153,7 +201,7 @@ async function toggleLesson() {
   learning.lessonNotes[id] = le('lessonNotes').value; await saveProgress(); showLesson(id); updateProgress();
 }
 
-async function saveProgress() { await request('/api/learning/progress', { method: 'PUT', body: JSON.stringify({ completedLessons: learning.completed, lessonNotes: learning.lessonNotes }) }); }
+async function saveProgress() { await request('/api/learning/progress', { method: 'PUT', body: JSON.stringify({ completedLessons: learning.completed, lessonNotes: learning.lessonNotes, assignmentDrafts: learning.assignmentDrafts }) }); }
 
 function updateProgress() {
   if (!learning.course) return;

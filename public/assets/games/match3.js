@@ -25,3 +25,4 @@ async function saveGame(manual=false){if(!user)return;const data={version:1,boar
 function validSave(data){return data&&data.version===1&&Array.isArray(data.board)&&data.board.length===SIZE&&data.board.every(row=>Array.isArray(row)&&row.length===SIZE)}
 function loadState(data){board=data.board;score=Number(data.score)||0;moves=Number(data.moves)||25;level=Number(data.level)||1;target=Number(data.target)||1500}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));setupGameNav();init().catch(()=>$('loginGate').showModal());
+const globalSiteScript=document.createElement('script');globalSiteScript.src='/assets/site.js';document.body.append(globalSiteScript);
