@@ -147,6 +147,7 @@ import resource
 import sys
 import time
 import traceback
+from typing import List
 
 class LimitedOutput(io.TextIOBase):
     def __init__(self, limit=6000):
@@ -178,17 +179,22 @@ started = time.perf_counter()
 result = {'success': False, 'passed': 0, 'total': 0, 'failures': []}
 
 try:
-    namespace = {'__name__': '__submission__'}
+    namespace = {'__name__': '__submission__', 'List': List}
     with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
         exec(compile(code, 'submission.py', 'exec'), namespace, namespace)
         if mode == 'grade':
+            class_name = str(evaluation.get('className', 'Solution'))
             function_name = str(evaluation.get('functionName', ''))
-            function = namespace.get(function_name)
-            if not callable(function):
-                raise AssertionError(f'没有找到可调用的函数 {function_name}()')
+            solution_class = namespace.get(class_name)
+            if not isinstance(solution_class, type):
+                raise AssertionError(f'没有找到 class {class_name}')
             cases = evaluation.get('cases') or []
             result['total'] = len(cases)
             for index, case in enumerate(cases, 1):
+                solution = solution_class()
+                function = getattr(solution, function_name, None)
+                if not callable(function):
+                    raise AssertionError(f'class {class_name} 中没有找到可调用的方法 {function_name}()')
                 args = copy.deepcopy(case.get('args') or [])
                 original_args = copy.deepcopy(args)
                 actual = function(*args)

@@ -390,7 +390,7 @@ async function api(req, res, url) {
     const assignment = getAssignment(assignmentRecordsMatch[1]);
     if (!assignment) return json(res, 404, { error: '作业不存在' });
     const own = state.learningSubmissions.filter(item => item.assignmentId === assignment.id && item.userId === user.id).sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).slice(0, 10).map(item => submissionView(item, user, true));
-    const shared = state.learningSubmissions.filter(item => item.assignmentId === assignment.id && item.userId !== user.id && item.visibility === 'public').sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).slice(0, 20).map(item => submissionView(item, user));
+    const shared = state.learningSubmissions.filter(item => item.assignmentId === assignment.id && item.userId !== user.id && item.visibility === 'public').sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).slice(0, 20).map(item => submissionView(item, user, true));
     return json(res, 200, { own, shared });
   }
   const assignmentTestMatch = url.pathname.match(/^\/api\/learning\/assignments\/([a-z0-9-]+)\/test$/);
