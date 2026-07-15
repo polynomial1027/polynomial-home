@@ -50,10 +50,12 @@ case "$ACTION" in
 
     /usr/bin/install -d -m 0711 -o root -g root "$USER_ROOT"
     /usr/bin/install -d -m 0700 -o 1000 -g 1000 "$WORK_DIR"
+    TOKEN_CREATED=0
     if [[ ! -s "$TOKEN_FILE" ]]; then
       /usr/bin/openssl rand -hex 32 > "$TOKEN_FILE"
       /usr/bin/chown root:root "$TOKEN_FILE"
       /usr/bin/chmod 0600 "$TOKEN_FILE"
+      TOKEN_CREATED=1
     fi
     TOKEN="$(<"$TOKEN_FILE")"
     if [[ "$QUOTA_ENABLED" == "1" || -f "$DISK_IMAGE" ]]; then
@@ -79,9 +81,12 @@ case "$ACTION" in
     fi
 
     CPUS="$(printf '%d.%03d' "$(( CPU_MILLI / 1000 ))" "$(( CPU_MILLI % 1000 ))")"
-    if container_exists && [[ "$("$DOCKER" inspect --format '{{index .Config.Labels "polynomial.notebook.version"}}' "$NAME")" != "2" ]]; then
-      container_running && "$DOCKER" stop --time 10 "$NAME" >/dev/null
-      "$DOCKER" rm "$NAME" >/dev/null
+    if container_exists; then
+      CONTAINER_VERSION="$("$DOCKER" inspect --format '{{index .Config.Labels "polynomial.notebook.version"}}' "$NAME")"
+      if [[ "$CONTAINER_VERSION" != "2" || "$TOKEN_CREATED" == "1" ]]; then
+        container_running && "$DOCKER" stop --time 10 "$NAME" >/dev/null
+        "$DOCKER" rm "$NAME" >/dev/null
+      fi
     fi
     if container_exists; then
       "$DOCKER" update --memory "${MEMORY_MB}m" --memory-swap "${MEMORY_MB}m" --cpus "$CPUS" --pids-limit 128 "$NAME" >/dev/null
@@ -106,7 +111,17 @@ case "$ACTION" in
     ;;
   status)
     [[ $# -eq 2 ]] || die "status 只需要 USER_ID"
-    if ! container_exists; then echo '{"running":false}'; elif container_running; then TOKEN="$(<"$TOKEN_FILE")"; printf '{"running":true,"container":"%s","ip":"%s","token":"%s"}\n' "$NAME" "$(container_ip)" "$TOKEN"; else printf '{"running":false,"container":"%s"}\n' "$NAME"; fi
+    if ! container_exists; then
+      echo '{"running":false}'
+    elif container_running && [[ ! -s "$TOKEN_FILE" ]]; then
+      "$DOCKER" stop --time 10 "$NAME" >/dev/null
+      printf '{"running":false,"container":"%s","repairRequired":true}\n' "$NAME"
+    elif container_running; then
+      TOKEN="$(<"$TOKEN_FILE")"
+      printf '{"running":true,"container":"%s","ip":"%s","token":"%s"}\n' "$NAME" "$(container_ip)" "$TOKEN"
+    else
+      printf '{"running":false,"container":"%s"}\n' "$NAME"
+    fi
     ;;
   stop)
     [[ $# -eq 2 ]] || die "stop 只需要 USER_ID"
