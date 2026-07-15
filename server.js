@@ -9,6 +9,7 @@ const { WebSocketServer } = require('ws');
 const Busboy = require('busboy');
 const httpProxy = require('http-proxy');
 const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser } = require('./lib/store');
+const { publicCourse, getAssignment, makeEvaluation } = require('./lib/python-course');
 
 const execFileAsync = promisify(execFile);
 
@@ -21,6 +22,8 @@ const state = load();
 const loginAttempts = new Map();
 const notebookActivity = new Map();
 const notebookSockets = new Map();
+const learningRunsInFlight = new Set();
+const learningLastRun = new Map();
 const NOTEBOOK_CTL = '/usr/local/sbin/polynomial-notebookctl';
 const uploadDir = path.join(__dirname, 'data', 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -63,7 +66,7 @@ const notebookConfig = () => ({
 
 async function notebookCtl(action, userId, ...args) {
   try {
-    const { stdout } = await execFileAsync('/usr/bin/sudo', ['-n', NOTEBOOK_CTL, action, userId, ...args.map(String)], { timeout: 90_000, maxBuffer: 64 * 1024 });
+    const { stdout } = await execFileAsync('/usr/bin/sudo', ['-n', NOTEBOOK_CTL, action, userId, ...args.map(String)], { timeout: 90_000, maxBuffer: 256 * 1024 });
     const line = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
     const result = JSON.parse(line || '{}');
     if (result.ip && net.isIP(result.ip) !== 4) throw new Error('Notebook 返回了无效地址');
@@ -87,6 +90,40 @@ async function stopNotebook(userId) {
   return result;
 }
 
+async function evaluateLearningCode(user, code, evaluation = null) {
+  const source = String(code || '');
+  if (!source.trim()) throw new Error('请输入要运行的 Python 代码');
+  if (Buffer.byteLength(source, 'utf8') > 20_000) throw new Error('代码不能超过 20 KB');
+  if (learningRunsInFlight.has(user.id)) throw new Error('当前账号已有代码正在运行');
+  const now = Date.now(), last = learningLastRun.get(user.id) || 0;
+  if (now - last < 1500) throw new Error('运行过于频繁，请稍等片刻');
+  learningLastRun.set(user.id, now);
+  learningRunsInFlight.add(user.id);
+  try {
+    await startNotebook(user);
+    const payload = Buffer.from(JSON.stringify({ mode: evaluation ? 'grade' : 'run', code: source, evaluation }), 'utf8').toString('base64');
+    const result = await notebookCtl('evaluate', user.id, 8, payload);
+    notebookActivity.set(user.id, Date.now());
+    return {
+      success: Boolean(result.success), passed: Number(result.passed || 0), total: Number(result.total || 0),
+      failures: Array.isArray(result.failures) ? result.failures.slice(0, 3) : [], error: result.error ? String(result.error).slice(0, 500) : null,
+      output: String(result.output || '').slice(0, 6000), runtimeMs: Math.max(0, Number(result.runtimeMs || 0)), memoryKB: Math.max(0, Number(result.memoryKB || 0))
+    };
+  } finally {
+    learningRunsInFlight.delete(user.id);
+  }
+}
+
+const submissionView = (submission, viewer, includeCode = false) => {
+  const owner = state.users.find(user => user.id === submission.userId);
+  return {
+    id: submission.id, assignmentId: submission.assignmentId, success: submission.success, passed: submission.passed, total: submission.total,
+    runtimeMs: submission.runtimeMs, memoryKB: submission.memoryKB, visibility: submission.visibility, submittedAt: submission.submittedAt,
+    displayName: owner?.displayName || '已删除用户', username: owner?.username || 'deleted', own: viewer.id === submission.userId,
+    ...(includeCode ? { code: submission.code, error: submission.error || null } : {})
+  };
+};
+
 const notebookProxy = httpProxy.createProxyServer({ ws: true, xfwd: true, changeOrigin: true, proxyTimeout: 0, timeout: 0 });
 notebookProxy.on('error', error => console.error('Notebook proxy error:', error.message));
 
@@ -105,7 +142,7 @@ function closeNotebookSockets(userId, token = null) {
   for (const [socket, socketToken] of sockets) if (!token || token === socketToken) socket.destroy();
 }
 const body = req => new Promise((resolve, reject) => {
-  let raw = ''; const maxBodyBytes = Math.max(20_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048);
+  let raw = ''; const maxBodyBytes = Math.max(64_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048);
   req.on('data', chunk => { raw += chunk; if (Buffer.byteLength(raw) > maxBodyBytes) reject(new Error('请求超过后台设置的存储上限')); });
   req.on('end', () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('JSON 格式错误')); } });
 });
@@ -332,8 +369,51 @@ async function api(req, res, url) {
     const user = requireUser(req, res); if (!user) return; const file = state.driveFiles.find(item => item.id === driveFileMatch[1]); if (!file || (user.role !== 'admin' && file.ownerId !== user.id)) return json(res, 404, { error: '文件不存在' }); const data = await body(req); const recipient = state.users.find(item => item.id === data.recipientId && item.active); if (!recipient || recipient.id === file.ownerId) return json(res, 400, { error: '请选择其他有效用户' }); if (!state.driveShares.some(item => item.fileId === file.id && item.recipientId === recipient.id)) state.driveShares.push({ id: crypto.randomUUID(), fileId: file.id, recipientId: recipient.id, sharedBy: user.id, createdAt: new Date().toISOString() }); save(state); return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/admin/drive' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { files: state.driveFiles, shares: state.driveShares, users: state.users.map(publicUser) }); }
-  if (url.pathname === '/api/learning/progress' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-basics'); return json(res, 200, { progress: progress || null }); }
-  if (url.pathname === '/api/learning/progress' && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const data = await body(req); let progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-basics'); if (!progress) { progress = { id: crypto.randomUUID(), userId: user.id, courseId: 'python-basics' }; state.learningProgress.push(progress); } progress.completedLessons = Array.isArray(data.completedLessons) ? [...new Set(data.completedLessons.map(String))].slice(0, 100) : []; progress.notes = String(data.notes || '').slice(0, 20000); progress.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { progress }); }
+  if (url.pathname === '/api/learning/course' && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return;
+    return json(res, 200, { course: publicCourse(), canRun: allowed(user, 'accessNotebook'), config: notebookConfig() });
+  }
+  if (url.pathname === '/api/learning/progress' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-foundations-v1'); return json(res, 200, { progress: progress || null }); }
+  if (url.pathname === '/api/learning/progress' && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const data = await body(req); let progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-foundations-v1'); if (!progress) { progress = { id: crypto.randomUUID(), userId: user.id, courseId: 'python-foundations-v1' }; state.learningProgress.push(progress); } progress.completedLessons = Array.isArray(data.completedLessons) ? [...new Set(data.completedLessons.map(String))].slice(0, 100) : []; progress.notes = String(data.notes || '').slice(0, 20000); progress.lessonNotes = data.lessonNotes && typeof data.lessonNotes === 'object' && !Array.isArray(data.lessonNotes) ? Object.fromEntries(Object.entries(data.lessonNotes).slice(0, 100).map(([key, value]) => [String(key).slice(0, 80), String(value || '').slice(0, 5000)])) : (progress.lessonNotes || {}); progress.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { progress }); }
+  if (url.pathname === '/api/learning/run' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习') || !denyUnless(res, user, 'accessNotebook', '此账号没有课程代码运行权限')) return;
+    const data = await body(req);
+    return json(res, 200, { result: await evaluateLearningCode(user, data.code) });
+  }
+  const assignmentRecordsMatch = url.pathname.match(/^\/api\/learning\/assignments\/([a-z0-9-]+)\/records$/);
+  if (assignmentRecordsMatch && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return;
+    const assignment = getAssignment(assignmentRecordsMatch[1]);
+    if (!assignment) return json(res, 404, { error: '作业不存在' });
+    const own = state.learningSubmissions.filter(item => item.assignmentId === assignment.id && item.userId === user.id).sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).slice(0, 10).map(item => submissionView(item, user, true));
+    const shared = state.learningSubmissions.filter(item => item.assignmentId === assignment.id && item.userId !== user.id && item.visibility === 'public').sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).slice(0, 20).map(item => submissionView(item, user));
+    return json(res, 200, { own, shared });
+  }
+  const assignmentSubmitMatch = url.pathname.match(/^\/api\/learning\/assignments\/([a-z0-9-]+)\/submit$/);
+  if (assignmentSubmitMatch && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习') || !denyUnless(res, user, 'accessNotebook', '此账号没有课程作业运行权限')) return;
+    const assignment = getAssignment(assignmentSubmitMatch[1]);
+    if (!assignment) return json(res, 404, { error: '作业不存在' });
+    const data = await body(req), code = String(data.code || '');
+    const result = await evaluateLearningCode(user, code, makeEvaluation(assignment));
+    const submission = { id: crypto.randomUUID(), userId: user.id, assignmentId: assignment.id, code: code.slice(0, 20_000), success: result.success, passed: result.passed, total: result.total, runtimeMs: result.runtimeMs, memoryKB: result.memoryKB, error: result.error, visibility: data.visibility === 'public' ? 'public' : 'private', submittedAt: new Date().toISOString() };
+    const previous = state.learningSubmissions.filter(item => item.userId === user.id && item.assignmentId === assignment.id).sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+    if (previous.length >= 20) { const removeIds = new Set(previous.slice(19).map(item => item.id)); state.learningSubmissions = state.learningSubmissions.filter(item => !removeIds.has(item.id)); }
+    state.learningSubmissions.push(submission); save(state);
+    return json(res, 200, { result, submission: submissionView(submission, user, true) });
+  }
+  const submissionVisibilityMatch = url.pathname.match(/^\/api\/learning\/submissions\/([0-9a-f-]+)\/visibility$/);
+  if (submissionVisibilityMatch && req.method === 'PATCH') {
+    const user = requireUser(req, res); if (!user) return;
+    const submission = state.learningSubmissions.find(item => item.id === submissionVisibilityMatch[1] && item.userId === user.id);
+    if (!submission) return json(res, 404, { error: '提交记录不存在' });
+    const data = await body(req); submission.visibility = data.visibility === 'public' ? 'public' : 'private'; save(state);
+    return json(res, 200, { submission: submissionView(submission, user, true) });
+  }
   if (url.pathname === '/api/notebook/status' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessNotebook', '此账号不能使用 Python 实验室')) return;

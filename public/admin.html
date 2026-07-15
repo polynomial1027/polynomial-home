@@ -52,7 +52,7 @@
         </details>
 
         <details class="settings-category">
-          <summary><div><span class="category-icon">&gt;_</span><span><strong>Python 实验室</strong><small>容器资源、磁盘配额与自动停止</small></span></div><span class="category-arrow">⌄</span></summary>
+          <summary><div><span class="category-icon">&gt;_</span><span><strong>网络学习代码环境</strong><small>课程实验、作业评测、容器资源与自动停止</small></span></div><span class="category-arrow">⌄</span></summary>
           <div class="settings-list">
             <label class="setting-row"><span><strong>同时运行人数</strong><small>当前服务器安全范围为 1–3 人</small></span><input id="notebookMaxConcurrent" type="number" min="1" max="3" required></label>
             <label class="setting-row"><span><strong>每个容器内存</strong><small>单位为 MB，可设置 256–1024</small></span><input id="notebookMemoryMB" type="number" min="256" max="1024" step="256" required></label>
@@ -66,7 +66,7 @@
       <div class="settings-footer"><div class="notice" id="settingsNotice"></div><button class="button" type="submit">保存全部参数</button></div>
     </form>
 
-    <section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Python runtime</div><h2>Python 运行状态</h2><p>查看当前账号容器，并可由管理员强制停止。</p></div><button class="button secondary" id="refreshNotebooks" type="button">刷新</button></div><div id="adminNotebookList"></div></section>
+    <section class="panel admin-section"><div class="section-head"><div><div class="eyebrow">Learning runtime</div><h2>课程代码环境状态</h2><p>查看网络学习与 JupyterLab 使用的账号容器，并可由管理员强制停止。</p></div><button class="button secondary" id="refreshNotebooks" type="button">刷新</button></div><div id="adminNotebookList"></div></section>
 
     <details class="panel admin-section chat-record-manager"><summary><div><div class="eyebrow">Moderation</div><h2>聊天记录管理</h2><p>支持搜索和分页，不会一次显示全部记录。</p></div><span class="category-arrow">⌄</span></summary><div class="record-toolbar"><input id="messageSearch" placeholder="搜索用户或消息内容"><button class="button secondary" id="searchMessages" type="button">搜索</button></div><div id="adminMessageList"></div><div class="record-pages"><button class="button secondary" id="prevMessagePage" type="button">上一页</button><span id="messagePageInfo">第 1 页</span><button class="button secondary" id="nextMessagePage" type="button">下一页</button></div></details>
 
@@ -89,7 +89,7 @@
       <div class="permission-directory" id="editPermissions">
         <details class="permission-category" open><summary><span><strong>聊天与成员</strong><small>进入聊天、发言和创建会话</small></span><span class="category-arrow">⌄</span></summary><div class="permission-list"><label><span>进入聊天</span><input type="checkbox" data-permission="accessChat"></label><label><span>在大厅发言</span><input type="checkbox" data-permission="postLobby"></label><label><span>创建聊天组</span><input type="checkbox" data-permission="createGroups"></label><label><span>创建私聊</span><input type="checkbox" data-permission="createDirect"></label><label><span>查看用户信息</span><input type="checkbox" data-permission="viewUsers"></label></div></details>
         <details class="permission-category"><summary><span><strong>文件网盘</strong><small>私人盘、公共盘和下载权限</small></span><span class="category-arrow">⌄</span></summary><div class="permission-list"><label><span>使用私人网盘</span><input type="checkbox" data-permission="driveEnabled"></label><label><span>查看公共盘</span><input type="checkbox" data-permission="viewPublicDrive"></label><label><span>上传公共盘</span><input type="checkbox" data-permission="uploadPublicDrive"></label><label><span>下载公共盘</span><input type="checkbox" data-permission="downloadPublicDrive"></label></div></details>
-        <details class="permission-category"><summary><span><strong>学习与应用</strong><small>课程、小游戏和 Python 环境</small></span><span class="category-arrow">⌄</span></summary><div class="permission-list"><label><span>访问网络学习</span><input type="checkbox" data-permission="accessLearning"></label><label><span>使用小游戏</span><input type="checkbox" data-permission="accessGames"></label><label><span>使用 Python 实验室</span><input type="checkbox" data-permission="accessNotebook"></label></div></details>
+        <details class="permission-category"><summary><span><strong>学习与应用</strong><small>课程阅读、代码运行、作业评测和小游戏</small></span><span class="category-arrow">⌄</span></summary><div class="permission-list"><label><span>访问网络学习课程</span><input type="checkbox" data-permission="accessLearning"></label><label><span>运行课程代码与提交作业</span><input type="checkbox" data-permission="accessNotebook"></label><label><span>使用小游戏</span><input type="checkbox" data-permission="accessGames"></label></div></details>
       </div>
       <div class="notice" id="editUserNotice"></div><div class="dialog-actions"><button class="button" type="submit">保存修改</button><button class="button danger" type="button" id="deleteUser">删除账户</button></div>
     </form>

@@ -114,5 +114,99 @@ case "$ACTION" in
     if /usr/bin/mountpoint -q "$WORK_DIR"; then /usr/bin/umount "$WORK_DIR"; fi
     echo '{"running":false}'
     ;;
-  *) die "仅支持 start、status、stop" ;;
+  evaluate)
+    [[ $# -eq 4 ]] || die "evaluate 参数：USER_ID TIMEOUT_SECONDS PAYLOAD_BASE64"
+    TIMEOUT_SECONDS="$3"
+    PAYLOAD_BASE64="$4"
+    is_integer "$TIMEOUT_SECONDS" || die "超时参数无效"
+    (( TIMEOUT_SECONDS >= 1 && TIMEOUT_SECONDS <= 10 )) || die "超时必须为 1–10 秒"
+    (( ${#PAYLOAD_BASE64} <= 120000 )) || die "代码负载过大"
+    [[ "$PAYLOAD_BASE64" =~ ^[A-Za-z0-9+/=]+$ ]] || die "代码负载格式无效"
+    container_running || die "Python 环境尚未启动"
+    RUNNER="$(/usr/bin/cat <<'PY'
+import contextlib
+import copy
+import io
+import json
+import resource
+import sys
+import time
+import traceback
+
+class LimitedOutput(io.TextIOBase):
+    def __init__(self, limit=6000):
+        self.limit = limit
+        self.parts = []
+        self.size = 0
+        self.truncated = False
+
+    def write(self, value):
+        value = str(value)
+        remaining = self.limit - self.size
+        if remaining > 0:
+            self.parts.append(value[:remaining])
+            self.size += min(len(value), remaining)
+        if len(value) > remaining:
+            self.truncated = True
+        return len(value)
+
+    def value(self):
+        text = ''.join(self.parts)
+        return text + ('\n…输出已截断…' if self.truncated else '')
+
+payload = json.load(sys.stdin)
+code = str(payload.get('code', ''))
+mode = payload.get('mode', 'run')
+evaluation = payload.get('evaluation') or {}
+output = LimitedOutput()
+started = time.perf_counter()
+result = {'success': False, 'passed': 0, 'total': 0, 'failures': []}
+
+try:
+    namespace = {'__name__': '__submission__'}
+    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+        exec(compile(code, 'submission.py', 'exec'), namespace, namespace)
+        if mode == 'grade':
+            function_name = str(evaluation.get('functionName', ''))
+            function = namespace.get(function_name)
+            if not callable(function):
+                raise AssertionError(f'没有找到可调用的函数 {function_name}()')
+            cases = evaluation.get('cases') or []
+            result['total'] = len(cases)
+            for index, case in enumerate(cases, 1):
+                args = copy.deepcopy(case.get('args') or [])
+                original_args = copy.deepcopy(args)
+                actual = function(*args)
+                correct = actual == case.get('expected')
+                if evaluation.get('preserveArgs') and args != original_args:
+                    correct = False
+                if correct:
+                    result['passed'] += 1
+                elif len(result['failures']) < 3:
+                    result['failures'].append({'test': index, 'message': '返回值或输入数据状态不符合要求'})
+            result['success'] = result['passed'] == result['total'] and result['total'] > 0
+        else:
+            result['success'] = True
+except BaseException as error:
+    result['error'] = f'{type(error).__name__}: {error}'
+    result['traceback'] = ''.join(traceback.format_exception_only(type(error), error)).strip()
+
+result['output'] = output.value()
+result['runtimeMs'] = round((time.perf_counter() - started) * 1000, 3)
+result['memoryKB'] = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
+PY
+)"
+    set +e
+    RESULT="$(/usr/bin/printf '%s' "$PAYLOAD_BASE64" | /usr/bin/base64 -d | "$DOCKER" exec -i --user 1000:1000 --workdir /home/notebook/work --env PYTHONIOENCODING=utf-8 "$NAME" /usr/bin/timeout --signal=KILL "${TIMEOUT_SECONDS}s" /usr/bin/python3 -I -c "$RUNNER" 2>&1)"
+    STATUS=$?
+    set -e
+    if [[ "$STATUS" -eq 124 || "$STATUS" -eq 137 ]]; then
+      echo '{"success":false,"passed":0,"total":0,"error":"运行超时或超过容器资源限制","output":"","runtimeMs":0,"memoryKB":0}'
+      exit 0
+    fi
+    [[ "$STATUS" -eq 0 ]] || die "评测进程失败：$RESULT"
+    /usr/bin/printf '%s\n' "$RESULT"
+    ;;
+  *) die "仅支持 start、status、stop、evaluate" ;;
 esac

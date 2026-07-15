@@ -1,1 +1,47 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>网络学习 · Polynomial Server</title><link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/enhancements.css"><link rel="stylesheet" href="/assets/portal.css"></head><body><header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a></div></header><main class="wrap"><div class="page-title"><div class="eyebrow">Network Learning</div><h1>网络学习</h1><p>课程内容与学习记录按账号保存。Notebook 执行环境将在下一阶段接入。</p></div><div class="learning-layout"><aside class="panel lesson-nav"><h2>Python 基础</h2><div id="lessonList"></div><progress id="courseProgress" max="4" value="0"></progress><small id="progressLabel">0 / 4 已完成</small></aside><article class="panel lesson-content" id="lessonContent"></article></div></main><script src="/assets/site.js"></script><script src="/assets/learning.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>网络学习 · Polynomial Server</title>
+  <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/enhancements.css">
+  <link rel="stylesheet" href="/assets/learning-lab.css">
+</head>
+<body>
+  <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><button class="menu-button" id="menuButton">菜单</button><nav class="nav-links" id="navLinks"></nav></div></header>
+  <main class="learning-page">
+    <section class="learning-heading">
+      <div><div class="eyebrow">Learn · Run · Submit</div><h1>网络学习</h1><p>知识点、代码实验和随机数据作业评测在同一个页面完成。</p></div>
+      <div class="course-stats panel"><div><strong id="completedCount">0</strong><small>完成课节</small></div><div><strong id="passedCount">0</strong><small>通过作业</small></div><div><strong id="coursePercent">0%</strong><small>课程进度</small></div></div>
+    </section>
+
+    <div class="learning-shell">
+      <aside class="course-directory panel">
+        <div class="directory-head"><div><span>COURSE 01</span><h2>Python 基础</h2></div><button id="courseMenu" type="button">目录</button></div>
+        <progress id="courseProgress" max="100" value="0"></progress>
+        <small id="progressLabel">正在读取课程…</small>
+        <div id="chapterList" class="chapter-list"></div>
+      </aside>
+
+      <article class="lesson-stage panel" id="lessonStage">
+        <div class="empty">正在载入课程内容…</div>
+      </article>
+
+      <aside class="code-workspace panel" id="codeWorkspace">
+        <div class="workspace-head"><div><span class="status-dot" id="notebookDot"></span><div><small>账号隔离环境</small><strong id="notebookStatus">检查中…</strong></div></div><button class="workspace-expand" id="openNotebook" type="button" title="打开完整 JupyterLab">↗</button></div>
+        <div class="workspace-limits" id="notebookLimits"></div>
+        <label class="editor-label" for="codeEditor"><span>代码实验区</span><small id="editorContext">自由练习</small></label>
+        <textarea id="codeEditor" class="code-editor" spellcheck="false" aria-label="Python 代码编辑器">print("Hello, Polynomial Server!")</textarea>
+        <div class="workspace-actions"><button class="button" id="runCode" type="button">运行代码</button><button class="button secondary" id="resetCode" type="button">重置</button></div>
+        <div class="run-metrics" id="runMetrics"></div>
+        <pre class="run-output" id="runOutput"><code>运行结果会显示在这里。</code></pre>
+        <div class="workspace-notice notice" id="workspaceNotice"></div>
+        <div class="workspace-footer"><button class="text-button" id="stopNotebook" type="button">停止当前环境</button><span>无外网 · 资源受限 · 独立存档</span></div>
+      </aside>
+    </div>
+  </main>
+  <script src="/assets/site.js"></script>
+  <script src="/assets/learning.js"></script>
+</body>
+</html>
