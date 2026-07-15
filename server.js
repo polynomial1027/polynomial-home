@@ -108,6 +108,7 @@ async function evaluateLearningCode(user, code, evaluation = null) {
     return {
       success: Boolean(result.success), passed: Number(result.passed || 0), total: Number(result.total || 0),
       failures: Array.isArray(result.failures) ? result.failures.slice(0, 3) : [], error: result.error ? String(result.error).slice(0, 500) : null,
+      caseResults: Array.isArray(result.caseResults) ? result.caseResults.slice(0, 3).map(item => ({ test: Number(item.test || 0), actualRepr: String(item.actualRepr || '').slice(0, 500) })) : [],
       output: String(result.output || '').slice(0, 6000), runtimeMs: Math.max(0, Number(result.runtimeMs || 0)), memoryKB: Math.max(0, Number(result.memoryKB || 0))
     };
   } finally {
@@ -393,6 +394,17 @@ async function api(req, res, url) {
     const shared = state.learningSubmissions.filter(item => item.assignmentId === assignment.id && item.userId !== user.id && item.visibility === 'public').sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).slice(0, 20).map(item => submissionView(item, user, true));
     return json(res, 200, { own, shared });
   }
+  if (assignmentRecordsMatch && req.method === 'DELETE') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return;
+    const assignment = getAssignment(assignmentRecordsMatch[1]);
+    if (!assignment) return json(res, 404, { error: '作业不存在' });
+    const before = state.learningSubmissions.length;
+    state.learningSubmissions = state.learningSubmissions.filter(item => item.assignmentId !== assignment.id || item.userId !== user.id);
+    assignmentTestPasses.delete(`${user.id}:${assignment.id}`);
+    save(state);
+    return json(res, 200, { removed: before - state.learningSubmissions.length });
+  }
   const assignmentTestMatch = url.pathname.match(/^\/api\/learning\/assignments\/([a-z0-9-]+)\/test$/);
   if (assignmentTestMatch && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
@@ -429,6 +441,16 @@ async function api(req, res, url) {
     if (!submission) return json(res, 404, { error: '提交记录不存在' });
     const data = await body(req); submission.visibility = data.visibility === 'public' ? 'public' : 'private'; save(state);
     return json(res, 200, { submission: submissionView(submission, user, true) });
+  }
+  const publicSubmissionDeleteMatch = url.pathname.match(/^\/api\/learning\/submissions\/([0-9a-f-]+)$/);
+  if (publicSubmissionDeleteMatch && req.method === 'DELETE') {
+    const user = requireUser(req, res); if (!user) return;
+    if (user.role !== 'admin') return json(res, 403, { error: '只有管理员可以删除其他用户的公开答案' });
+    const submission = state.learningSubmissions.find(item => item.id === publicSubmissionDeleteMatch[1] && item.visibility === 'public');
+    if (!submission) return json(res, 404, { error: '公开答案不存在或已经删除' });
+    state.learningSubmissions = state.learningSubmissions.filter(item => item.id !== submission.id);
+    save(state);
+    return json(res, 200, { removed: true });
   }
   if (url.pathname === '/api/notebook/status' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;

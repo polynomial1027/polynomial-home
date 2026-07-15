@@ -176,7 +176,7 @@ mode = payload.get('mode', 'run')
 evaluation = payload.get('evaluation') or {}
 output = LimitedOutput()
 started = time.perf_counter()
-result = {'success': False, 'passed': 0, 'total': 0, 'failures': []}
+result = {'success': False, 'passed': 0, 'total': 0, 'failures': [], 'caseResults': []}
 
 try:
     namespace = {'__name__': '__submission__', 'List': List}
@@ -198,6 +198,8 @@ try:
                 args = copy.deepcopy(case.get('args') or [])
                 original_args = copy.deepcopy(args)
                 actual = function(*args)
+                if evaluation.get('revealCaseResults'):
+                    result['caseResults'].append({'test': index, 'actualRepr': repr(actual)[:500]})
                 correct = actual == case.get('expected')
                 if evaluation.get('preserveArgs') and args != original_args:
                     correct = False

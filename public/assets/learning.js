@@ -1,5 +1,5 @@
 const learning = {
-  course: null, completed: [], lessonNotes: {}, assignmentDrafts: {}, currentLessonId: null, currentAssignment: null,
+  user: null, course: null, completed: [], lessonNotes: {}, assignmentDrafts: {}, currentLessonId: null, currentAssignment: null,
   canRun: false, config: {}, drafts: new Map(), records: new Map(), running: false, assignmentTestPassed: false
 };
 const le = id => document.getElementById(id);
@@ -10,8 +10,10 @@ function currentLesson() { return allLessons().find(item => item.id === learning
 
 async function initLearningLab() {
   const user = await loadAccount();
+  learning.user = user;
   const [courseData, progressData] = await Promise.all([request('/api/learning/course'), request('/api/learning/progress')]);
   learning.course = courseData.course; learning.canRun = courseData.canRun; learning.config = courseData.config || {};
+  if (le('courseTitle')) le('courseTitle').textContent = learning.course.title;
   learning.completed = progressData.progress?.completedLessons || [];
   learning.lessonNotes = progressData.progress?.lessonNotes || {};
   learning.assignmentDrafts = progressData.progress?.assignmentDrafts || {};
@@ -49,6 +51,7 @@ function showLesson(id) {
   const blocks = lesson.body.map((block, index) => {
     if (block.type === 'code') return `<div class="lesson-code"><button class="try-code" data-example="${index}" type="button">在右侧运行</button><pre><code>${esc(block.code)}</code></pre></div>`;
     if (block.type === 'tip') return `<div class="lesson-tip">${esc(block.text)}</div>`;
+    if (block.type === 'heading') return `<section class="lesson-topic"><h3>${esc(block.title)}</h3><p>${esc(block.text)}</p></section>`;
     return `<div class="lesson-block"><p>${esc(block.text)}</p></div>`;
   }).join('');
   const assignment = lesson.assignment ? assignmentHtml(lesson.assignment) : '';
@@ -64,9 +67,11 @@ function showLesson(id) {
     le('assignmentEditor').addEventListener('input', invalidateAssignmentTest);
     le('assignmentEditor').addEventListener('keydown', event => { if (event.key === 'Tab') { event.preventDefault(); const editor = event.currentTarget, start = editor.selectionStart, end = editor.selectionEnd; editor.setRangeText('    ', start, end, 'end'); } });
     le('saveAssignmentDraft').onclick = saveAssignmentDraft;
+    le('resetAssignmentCode').onclick = resetAssignmentCode;
     le('testAssignment').onclick = testAssignment;
     le('submitAssignment').onclick = submitAssignment;
     le('showCommunityResults').onclick = openCommunityResults;
+    le('clearAssignmentRecords').onclick = clearAssignmentRecords;
     loadRecords(lesson.assignment.id, true);
   }
   resetEditor(true);
@@ -77,7 +82,7 @@ function assignmentHtml(assignment) {
   const legacyDraft = saved && !/\bclass\s+Solution\b/.test(saved);
   const code = saved && !legacyDraft ? saved : assignment.starterCode;
   const examples = (assignment.examples || []).map((item, index) => `<div class="assignment-example"><strong>示例 ${index + 1}</strong><code>调用：${esc(item.call)}</code><code>返回：${esc(item.output)}</code><p>${esc(item.explanation || '')}</p></div>`).join('');
-  return `<section class="lesson-assignment" id="assignmentPanel"><div class="assignment-head"><div><span class="assignment-badge">CLASS SOLUTION ASSIGNMENT</span><h3>${esc(assignment.title)}</h3><p>${esc(assignment.prompt)}</p><div class="assignment-rule">必须保留 <code>class Solution</code>、指定的方法名称、<code>self</code> 和参数。只在方法中补充逻辑，并用 <code>return</code> 返回答案；不要读取输入、调用 <code>print()</code> 代替返回值或写死测试数据。</div>${legacyDraft ? '<div class="assignment-migration">检测到旧函数格式草稿，已载入新的 Solution 类模板。旧草稿仍保留到你点击“保存草稿”。</div>' : ''}</div></div>${examples ? `<div class="assignment-examples">${examples}</div>` : ''}<div class="assignment-editor-shell"><div class="assignment-editor-head"><span>Solution.py</span><small>独立作业编辑区 · 严格使用 class Solution</small></div><textarea id="assignmentEditor" class="assignment-editor" spellcheck="false">${esc(code)}</textarea><div class="assignment-test-result" id="assignmentTestResult"><span>修改代码后请先测试。通过页面测试后才能正式提交。</span></div><div class="assignment-actions"><button class="button secondary" id="saveAssignmentDraft" type="button">保存草稿</button><button class="button secondary" id="testAssignment" type="button" ${learning.canRun ? '' : 'disabled'}>测试</button><div class="assignment-submit-group"><button class="button assignment-submit" id="submitAssignment" type="button" disabled>提交</button><details class="submit-privacy"><summary title="选择成绩可见性">▾</summary><div><label><input type="radio" name="submissionVisibility" value="private" checked><span>不公开成绩和答案</span></label><label><input type="radio" name="submissionVisibility" value="public"><span>公开成绩、时间、内存和答案代码</span></label></div></details></div></div></div><div class="submission-records"><div class="records-title"><div><strong>我的作业记录</strong><small>正式提交会使用新的隐藏随机数据</small></div><button class="button secondary community-results-button" id="showCommunityResults" type="button">查看其他人的结果</button></div><div class="record-list" id="assignmentRecords"><div class="empty">正在读取记录…</div></div></div><dialog class="community-results-dialog" id="communityResultsDialog"><div class="community-dialog-head"><div><span class="assignment-badge">PUBLIC SOLUTIONS</span><h3>其他人的公开结果</h3><p>这里只显示由答题者主动选择公开的成绩和答案。</p></div><form method="dialog"><button class="dialog-close" aria-label="关闭" type="submit">×</button></form></div><div class="community-result-list" id="communityResultList"></div></dialog></section>`;
+  return `<section class="lesson-assignment" id="assignmentPanel"><div class="assignment-head"><div><span class="assignment-badge">CLASS SOLUTION ASSIGNMENT</span><h3>${esc(assignment.title)}</h3><p>${esc(assignment.prompt)}</p><div class="assignment-rule">必须保留 <code>class Solution</code>、指定的方法名称、<code>self</code> 和参数。只在方法中补充逻辑，并用 <code>return</code> 返回答案；不要读取输入、调用 <code>print()</code> 代替返回值或写死测试数据。</div>${legacyDraft ? '<div class="assignment-migration">检测到旧函数格式草稿，已载入新的 Solution 类模板。旧草稿仍保留到你点击“保存草稿”。</div>' : ''}</div></div>${examples ? `<div class="assignment-examples">${examples}</div>` : ''}<div class="assignment-editor-shell"><div class="assignment-editor-head"><span>Solution.py</span><small>独立作业编辑区 · 严格使用 class Solution</small></div><textarea id="assignmentEditor" class="assignment-editor" spellcheck="false">${esc(code)}</textarea><div class="assignment-test-result" id="assignmentTestResult"><span>修改代码后请先测试。通过页面测试后才能正式提交。</span></div><div class="assignment-actions"><button class="button secondary" id="saveAssignmentDraft" type="button">保存草稿</button><button class="button secondary" id="resetAssignmentCode" type="button">重置代码</button><button class="button secondary" id="testAssignment" type="button" ${learning.canRun ? '' : 'disabled'}>测试</button><div class="assignment-submit-group"><button class="button assignment-submit" id="submitAssignment" type="button" disabled>提交</button><details class="submit-privacy"><summary title="选择成绩可见性">▾</summary><div><label><input type="radio" name="submissionVisibility" value="private" checked><span>不公开成绩和答案</span></label><label><input type="radio" name="submissionVisibility" value="public"><span>公开成绩、时间、内存和答案代码</span></label></div></details></div></div></div><div class="submission-records"><div class="records-title"><div><strong>我的作业记录</strong><small>可以修改每次记录的公开状态，或清空当前作业的个人记录</small></div><div class="records-actions"><button class="button secondary" id="clearAssignmentRecords" type="button">清空我的记录</button><button class="button secondary community-results-button" id="showCommunityResults" type="button">查看其他人的结果</button></div></div><div class="record-list" id="assignmentRecords"><div class="empty">正在读取记录…</div></div></div><dialog class="community-results-dialog" id="communityResultsDialog"><div class="community-dialog-head"><div><span class="assignment-badge">PUBLIC SOLUTIONS</span><h3>其他人的公开结果</h3><p>这里只显示由答题者主动选择公开的成绩和答案；管理员可以删除不适合公开的记录。</p></div><form method="dialog"><button class="dialog-close" aria-label="关闭" type="submit">×</button></form></div><div class="community-result-list" id="communityResultList"></div></dialog></section>`;
 }
 
 function setEditor(code, context) {
@@ -122,6 +127,19 @@ async function saveAssignmentDraft() {
   finally { setTimeout(() => { if (le('saveAssignmentDraft')) { le('saveAssignmentDraft').disabled = false; le('saveAssignmentDraft').textContent = '保存草稿'; } }, 900); }
 }
 
+async function resetAssignmentCode() {
+  const assignment = learning.currentAssignment; if (!assignment) return;
+  if (!confirm('确定恢复这道作业的初始代码模板吗？当前编辑区内容会被覆盖。')) return;
+  const editor = le('assignmentEditor'), button = le('resetAssignmentCode');
+  editor.value = assignment.starterCode;
+  learning.assignmentDrafts[assignment.id] = assignment.starterCode;
+  invalidateAssignmentTest();
+  button.disabled = true; button.textContent = '正在重置…';
+  try { await saveProgress(); button.textContent = '已重置'; editor.focus(); }
+  catch (error) { button.textContent = '重置失败'; le('assignmentTestResult').innerHTML = `<span class="test-fail">${esc(error.message)}</span>`; }
+  finally { setTimeout(() => { if (le('resetAssignmentCode')) { le('resetAssignmentCode').disabled = false; le('resetAssignmentCode').textContent = '重置代码'; } }, 900); }
+}
+
 async function testAssignment() {
   const assignment = learning.currentAssignment; if (!assignment || learning.running) return;
   const code = le('assignmentEditor').value, button = le('testAssignment');
@@ -140,7 +158,8 @@ async function testAssignment() {
 function renderAssignmentTest(result, cases) {
   const status = result.success ? `<strong class="test-pass">测试通过 · ${result.passed}/${result.total}</strong>` : `<strong class="test-fail">测试未通过 · ${result.passed}/${result.total}</strong>`;
   const metrics = `<span>${Number(result.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(result.memoryKB)}</span>`;
-  const rows = cases.map(item => `<div class="test-case"><b>测试 ${item.number}</b><code>参数：${esc(JSON.stringify(item.args))}</code><code>期望返回：${esc(JSON.stringify(item.expected))}</code></div>`).join('');
+  const actualByTest = new Map((result.caseResults || []).map(item => [Number(item.test), item.actualRepr]));
+  const rows = cases.map(item => { const actual = actualByTest.has(item.number) ? actualByTest.get(item.number) : '执行中断，未得到返回值'; const actualLabel = actual === 'None' ? 'None（没有返回值）' : actual; return `<div class="test-case"><b>测试 ${item.number}</b><code>参数：${esc(JSON.stringify(item.args))}</code><code class="test-actual">实际返回：${esc(actualLabel)}</code><code>期望返回：${esc(JSON.stringify(item.expected))}</code></div>`; }).join('');
   const error = result.error ? `<pre>${esc(result.error)}</pre>` : '';
   le('assignmentTestResult').innerHTML = `<div class="test-summary">${status}<div>${metrics}</div></div>${error}<div class="test-cases">${rows}</div>`;
 }
@@ -182,12 +201,22 @@ function renderRecords(records) {
   le('assignmentRecords').innerHTML = rows.length ? rows.join('') : '<div class="empty">还没有提交记录</div>';
   const communityButton = le('showCommunityResults');
   if (communityButton) communityButton.textContent = `查看其他人的结果${shared.length ? `（${shared.length}）` : ''}`;
+  const clearButton = le('clearAssignmentRecords');
+  if (clearButton) { clearButton.disabled = own.length === 0; clearButton.textContent = '清空我的记录'; }
   if (le('communityResultsDialog')?.open) renderCommunityResults(shared);
-  document.querySelectorAll('[data-visibility]').forEach(button => button.onclick = async () => {
-    const visibility = button.dataset.current === 'public' ? 'private' : 'public';
-    try { await request(`/api/learning/submissions/${button.dataset.visibility}/visibility`, { method: 'PATCH', body: JSON.stringify({ visibility }) }); await loadRecords(learning.currentAssignment.id, true); }
-    catch (error) { alert(error.message); }
+  document.querySelectorAll('[data-record-visibility]').forEach(select => select.onchange = async () => {
+    select.disabled = true;
+    try { await request(`/api/learning/submissions/${select.dataset.recordVisibility}/visibility`, { method: 'PATCH', body: JSON.stringify({ visibility: select.value }) }); await loadRecords(learning.currentAssignment.id, true); }
+    catch (error) { alert(error.message); await loadRecords(learning.currentAssignment.id, true); }
   });
+}
+
+async function clearAssignmentRecords() {
+  const assignment = learning.currentAssignment; if (!assignment) return;
+  if (!confirm('确定清空当前作业的全部个人提交记录吗？此操作不能撤销，作业代码草稿不会删除。')) return;
+  const button = le('clearAssignmentRecords'); button.disabled = true; button.textContent = '正在清空…';
+  try { await request(`/api/learning/assignments/${assignment.id}/records`, { method: 'DELETE' }); await loadRecords(assignment.id, true); updateProgress(); }
+  catch (error) { alert(error.message); button.disabled = false; button.textContent = '清空我的记录'; }
 }
 
 function openCommunityResults() {
@@ -198,11 +227,17 @@ function openCommunityResults() {
 
 function renderCommunityResults(shared) {
   const list = le('communityResultList'); if (!list) return;
-  list.innerHTML = shared.length ? shared.map((item, index) => `<article class="community-result"><div class="community-result-meta"><div><strong>${esc(item.displayName)}</strong><small>@${esc(item.username)} · ${new Date(item.submittedAt).toLocaleString('zh-CN')}</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace('峰值内存', '')}</span></div></div><details ${index === 0 ? 'open' : ''}><summary>查看答案代码</summary><pre><code>${esc(item.code || '# 此公开记录没有可显示的代码')}</code></pre></details></article>`).join('') : '<div class="empty community-empty">还没有用户公开这道作业的结果。</div>';
+  list.innerHTML = shared.length ? shared.map((item, index) => `<article class="community-result"><div class="community-result-meta"><div><strong>${esc(item.displayName)}</strong><small>@${esc(item.username)} · ${new Date(item.submittedAt).toLocaleString('zh-CN')}</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace('峰值内存', '')}</span>${learning.user?.role === 'admin' ? `<button class="delete-public-answer" data-delete-public-answer="${item.id}" type="button">删除公开答案</button>` : ''}</div></div><details ${index === 0 ? 'open' : ''}><summary>查看答案代码</summary><pre><code>${esc(item.code || '# 此公开记录没有可显示的代码')}</code></pre></details></article>`).join('') : '<div class="empty community-empty">还没有用户公开这道作业的结果。</div>';
+  list.querySelectorAll('[data-delete-public-answer]').forEach(button => button.onclick = async () => {
+    if (!confirm('确定以管理员身份删除这条公开答案吗？此操作不能撤销。')) return;
+    button.disabled = true; button.textContent = '正在删除…';
+    try { await request(`/api/learning/submissions/${button.dataset.deletePublicAnswer}`, { method: 'DELETE' }); await loadRecords(learning.currentAssignment.id, true); }
+    catch (error) { alert(error.message); button.disabled = false; button.textContent = '删除公开答案'; }
+  });
 }
 
 function recordRow(item, label) {
-  return `<div class="submission-row"><div><strong>${esc(label)} · ${item.success ? '通过' : '未通过'}</strong><small>${new Date(item.submittedAt).toLocaleString('zh-CN')} · ${item.passed}/${item.total} 个测试</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace('峰值内存', '')}</span>${item.own ? `<button class="visibility-button" data-visibility="${item.id}" data-current="${item.visibility}">${item.visibility === 'public' ? '公开' : '隐藏'}</button>` : '<span>已公开</span>'}</div></div>`;
+  return `<div class="submission-row"><div><strong>${esc(label)} · ${item.success ? '通过' : '未通过'}</strong><small>${new Date(item.submittedAt).toLocaleString('zh-CN')} · ${item.passed}/${item.total} 个测试</small></div><div class="record-metrics"><span class="${item.success ? 'record-pass' : 'record-fail'}">${item.success ? 'PASS' : 'RETRY'}</span><span>${Number(item.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(item.memoryKB).replace('峰值内存', '')}</span>${item.own ? `<label class="record-visibility-label"><span>可见性</span><select data-record-visibility="${item.id}" aria-label="修改记录公开模式"><option value="private" ${item.visibility === 'private' ? 'selected' : ''}>隐藏</option><option value="public" ${item.visibility === 'public' ? 'selected' : ''}>公开</option></select></label>` : '<span>已公开</span>'}</div></div>`;
 }
 
 async function saveLessonNotes() {
