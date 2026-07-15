@@ -17,13 +17,17 @@ async function initLearningLab() {
   learning.completed = progressData.progress?.completedLessons || [];
   learning.lessonNotes = progressData.progress?.lessonNotes || {};
   learning.assignmentDrafts = progressData.progress?.assignmentDrafts || {};
+  const params = new URLSearchParams(location.search);
+  const courseSelected = params.get('course') === learning.course.id || params.get('lab') === '1';
+  le('courseCatalog').hidden = courseSelected;
+  le('courseView').hidden = !courseSelected;
   const firstLessonId = allLessons()[0]?.id;
   learning.currentLessonId = null;
   renderDirectory(); showLesson(firstLessonId); showLimits();
   if (learning.canRun) await refreshNotebookStatus(); else setWorkspaceAccess(false, '未开放代码运行权限');
   await Promise.all(assignmentIds().map(id => loadRecords(id, false)));
   updateProgress();
-  if (new URLSearchParams(location.search).get('lab') === '1') le('codeWorkspace').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (params.get('lab') === '1') le('codeWorkspace').scrollIntoView({ behavior: 'smooth', block: 'start' });
   le('courseMenu').onclick = () => le('chapterList').classList.toggle('collapsed');
   le('openDraftLibrary').onclick = openDraftLibrary;
   le('exportAllDrafts').onclick = exportAllDrafts;

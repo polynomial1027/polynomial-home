@@ -14,35 +14,51 @@
   <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><button class="menu-button" id="menuButton">菜单</button><nav class="nav-links" id="navLinks"></nav></div></header>
   <main class="learning-page">
     <section class="learning-heading">
-      <div><div class="eyebrow">Learn · Run · Submit</div><h1>网络学习</h1><p>知识点、代码实验和随机数据作业评测在同一个页面完成。</p></div>
-      <div class="course-stats panel"><div><strong id="completedCount">0</strong><small>完成课节</small></div><div><strong id="passedCount">0</strong><small>通过作业</small></div><div><strong id="coursePercent">0%</strong><small>课程进度</small></div></div>
+      <div><div class="eyebrow">Learning Center</div><h1>网络学习</h1><p>先选择课程，再在知识正文、代码实验和作业评测之间连续学习。</p></div>
+      <div class="learning-heading-note"><strong>课程中心</strong><span>课程、实验和作业按账号保存</span></div>
     </section>
 
-    <div class="learning-shell">
-      <aside class="course-directory panel">
-        <div class="directory-head"><div><span>COURSE 01</span><h2 id="courseTitle">Python 基础</h2></div><button id="courseMenu" type="button">目录</button></div>
-        <progress id="courseProgress" max="100" value="0"></progress>
-        <small id="progressLabel">正在读取课程…</small>
-        <button class="draft-library-button" id="openDraftLibrary" type="button">我的作业草稿</button>
-        <div id="chapterList" class="chapter-list"></div>
-      </aside>
+    <section class="course-catalog" id="courseCatalog">
+      <div class="course-catalog-head"><div><span>COURSE DIRECTORY</span><h2>选择课程</h2><p>目前开放 Python 基础课程，其他方向将在后续版本加入。</p></div><small>1 门课程可学习</small></div>
+      <div class="course-card-grid">
+        <a class="course-select-card course-select-card-active" href="/learning.html?course=python-foundations-v1"><span class="course-card-index">01</span><div class="course-card-icon">Py</div><div><small>PROGRAMMING · 入门</small><h3>Python 基础</h3><p>从对象与点号语法开始，学习变量、容器、控制流、函数、类、文件、异常和测试。</p></div><div class="course-card-meta"><span>11 章</span><span>64 节</span><span>15 道作业</span></div><strong class="course-card-action">进入课程 →</strong></a>
+        <article class="course-select-card course-select-card-planned" aria-disabled="true"><span class="course-card-index">02</span><div class="course-card-icon">DA</div><div><small>DATA · 规划中</small><h3>数据分析</h3><p>面向表格数据、可视化与基础统计的实践课程。</p></div><span class="course-coming">敬请期待</span></article>
+        <article class="course-select-card course-select-card-planned" aria-disabled="true"><span class="course-card-index">03</span><div class="course-card-icon">Web</div><div><small>APPLICATION · 规划中</small><h3>Web 应用</h3><p>从请求、接口到前后端协作的应用开发课程。</p></div><span class="course-coming">敬请期待</span></article>
+      </div>
+    </section>
 
-      <article class="lesson-stage panel" id="lessonStage">
-        <div class="empty">正在载入课程内容…</div>
-      </article>
+    <section class="course-view" id="courseView" hidden>
+      <div class="course-view-head">
+        <div><a class="back-to-courses" href="/learning.html">← 返回课程选择</a><div class="eyebrow">Python Foundations</div><h2>Python 基础课程</h2></div>
+        <div class="course-stats panel"><div><strong id="completedCount">0</strong><small>完成课节</small></div><div><strong id="passedCount">0</strong><small>通过作业</small></div><div><strong id="coursePercent">0%</strong><small>课程进度</small></div></div>
+      </div>
 
-      <aside class="code-workspace panel" id="codeWorkspace">
-        <div class="workspace-head"><div><span class="status-dot" id="notebookDot"></span><div><small>账号隔离环境</small><strong id="notebookStatus">检查中…</strong></div></div><button class="workspace-expand" id="openNotebook" type="button" title="打开完整 JupyterLab">↗</button></div>
-        <div class="workspace-limits" id="notebookLimits"></div>
-        <label class="editor-label" for="codeEditor"><span>代码实验区</span><small id="editorContext">自由练习</small></label>
-        <textarea id="codeEditor" class="code-editor" spellcheck="false" aria-label="Python 代码编辑器">print("Hello, Polynomial Server!")</textarea>
-        <div class="workspace-actions"><button class="button" id="runCode" type="button">运行代码</button><button class="button secondary" id="resetCode" type="button">重置</button></div>
-        <div class="run-metrics" id="runMetrics"></div>
-        <pre class="run-output" id="runOutput"><code>运行结果会显示在这里。</code></pre>
-        <div class="workspace-notice notice" id="workspaceNotice"></div>
-        <div class="workspace-footer"><button class="text-button" id="stopNotebook" type="button">停止当前环境</button><span>无外网 · 资源受限 · 独立存档</span></div>
-      </aside>
-    </div>
+      <div class="learning-shell">
+        <aside class="course-directory panel">
+          <div class="directory-head"><div><span>COURSE 01</span><h2 id="courseTitle">Python 基础</h2></div><button id="courseMenu" type="button">目录</button></div>
+          <progress id="courseProgress" max="100" value="0"></progress>
+          <small id="progressLabel">正在读取课程…</small>
+          <button class="draft-library-button" id="openDraftLibrary" type="button">我的作业草稿</button>
+          <div id="chapterList" class="chapter-list"></div>
+        </aside>
+
+        <article class="lesson-stage panel" id="lessonStage">
+          <div class="empty">正在载入课程内容…</div>
+        </article>
+
+        <aside class="code-workspace panel" id="codeWorkspace">
+          <div class="workspace-head"><div><span class="status-dot" id="notebookDot"></span><div><small>账号隔离环境</small><strong id="notebookStatus">检查中…</strong></div></div><button class="workspace-expand" id="openNotebook" type="button" title="打开完整 JupyterLab">↗</button></div>
+          <div class="workspace-limits" id="notebookLimits"></div>
+          <label class="editor-label" for="codeEditor"><span>代码实验区</span><small id="editorContext">自由练习</small></label>
+          <textarea id="codeEditor" class="code-editor" spellcheck="false" aria-label="Python 代码编辑器">print("Hello, Polynomial Server!")</textarea>
+          <div class="workspace-actions"><button class="button" id="runCode" type="button">运行代码</button><button class="button secondary" id="resetCode" type="button">重置</button></div>
+          <div class="run-metrics" id="runMetrics"></div>
+          <pre class="run-output" id="runOutput"><code>运行结果会显示在这里。</code></pre>
+          <div class="workspace-notice notice" id="workspaceNotice"></div>
+          <div class="workspace-footer"><button class="text-button" id="stopNotebook" type="button">停止当前环境</button><span>无外网 · 资源受限 · 独立存档</span></div>
+        </aside>
+      </div>
+    </section>
   </main>
   <dialog class="draft-library-dialog" id="draftLibraryDialog"><div class="draft-library-head"><div><div class="eyebrow">My drafts</div><h2>我的作业草稿</h2><p>查看、继续编辑或导出当前账号保存的代码。</p></div><form method="dialog"><button class="dialog-close" aria-label="关闭" type="submit">×</button></form></div><div class="draft-library-toolbar"><span id="draftLibraryCount">0 份草稿</span><button class="button secondary" id="exportAllDrafts" type="button">导出全部 JSON</button></div><div class="draft-library-list" id="draftLibraryList"></div></dialog>
   <script src="/assets/site.js"></script>
