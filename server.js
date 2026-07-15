@@ -157,7 +157,7 @@ const requireUser = (req, res, role) => {
   return user;
 };
 const conversationFor = (id, user) => {
-  if (id === 'lobby') return { id: 'lobby', title: '开发者大厅', type: 'lobby', memberIds: state.users.filter(u => u.active).map(u => u.id) };
+  if (id === 'lobby') return { id: 'lobby', title: '聊天大厅', type: 'lobby', memberIds: state.users.filter(u => u.active).map(u => u.id) };
   const conversation = state.conversations.find(item => item.id === id);
   if (!conversation) return null;
   return user.role === 'admin' || conversation.memberIds.includes(user.id) ? conversation : null;
@@ -305,7 +305,7 @@ async function api(req, res, url) {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
     const visible = state.conversations.filter(item => user.role === 'admin' || item.memberIds.includes(user.id)).map(publicConversation);
-    return json(res, 200, { conversations: [{ id: 'lobby', title: '开发者大厅', type: 'lobby', memberIds: [] }, ...visible], users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active).map(publicUser) : [] });
+    return json(res, 200, { conversations: [{ id: 'lobby', title: '聊天大厅', type: 'lobby', memberIds: [] }, ...visible], users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active).map(publicUser) : [] });
   }
   if (url.pathname === '/api/conversations' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; const data = await body(req);

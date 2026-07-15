@@ -62,7 +62,7 @@ function renderDraftLibrary() {
   const entries = draftEntries(), list = le('draftLibraryList');
   le('draftLibraryCount').textContent = `${entries.length} 份草稿`;
   le('exportAllDrafts').disabled = entries.length === 0;
-  list.innerHTML = entries.length ? entries.map(({ lesson, assignment, code }) => `<article class="draft-library-item"><div class="draft-library-meta"><div><span>第 ${lesson.chapter.number} 章 · ${esc(lesson.title)}</span><strong>${esc(assignment.title)}</strong></div><div class="draft-library-actions"><button class="button secondary" data-open-draft="${assignment.id}" type="button">继续编辑</button><button class="button secondary" data-export-draft="${assignment.id}" type="button">导出 .py</button></div></div><details><summary>查看保存的代码</summary><pre><code>${esc(code)}</code></pre></details></article>`).join('') : '<div class="empty">当前账号还没有保存作业草稿。进入作业后点击“保存草稿”，这里就会出现记录。</div>';
+  list.innerHTML = entries.length ? entries.map(({ lesson, assignment, code }) => `<article class="draft-library-item"><div class="draft-library-meta"><div><span>第 ${lesson.chapter.number} 章 · ${esc(lesson.title)}</span><strong>${esc(assignment.title)}</strong></div><div class="draft-library-actions"><button class="button secondary" data-open-draft="${assignment.id}" type="button">继续编辑</button><button class="button secondary" data-export-draft="${assignment.id}" type="button">导出 .py</button><button class="button danger" data-delete-draft="${assignment.id}" type="button">删除草稿</button></div></div><details><summary>查看保存的代码</summary><pre><code>${esc(code)}</code></pre></details></article>`).join('') : '<div class="empty">当前账号还没有保存作业草稿。进入作业后点击“保存草稿”，这里就会出现记录。</div>';
   list.querySelectorAll('[data-open-draft]').forEach(button => button.onclick = () => {
     const entry = entries.find(item => item.assignment.id === button.dataset.openDraft); if (!entry) return;
     le('draftLibraryDialog').close(); showLesson(entry.lesson.id); setTimeout(() => le('assignmentPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
@@ -71,6 +71,20 @@ function renderDraftLibrary() {
     const entry = entries.find(item => item.assignment.id === button.dataset.exportDraft); if (!entry) return;
     downloadText(`${entry.assignment.id}-solution.py`, entry.code, 'text/x-python;charset=utf-8');
   });
+  list.querySelectorAll('[data-delete-draft]').forEach(button => button.onclick = () => deleteAssignmentDraft(button.dataset.deleteDraft, button));
+}
+
+async function deleteAssignmentDraft(assignmentId, button) {
+  const entry = draftEntries().find(item => item.assignment.id === assignmentId); if (!entry) return;
+  if (!confirm('确定删除这份作业草稿吗？删除后不能恢复。')) return;
+  button.disabled = true; button.textContent = '正在删除…';
+  delete learning.assignmentDrafts[assignmentId];
+  if (learning.currentAssignment?.id === assignmentId && le('assignmentEditor')) {
+    le('assignmentEditor').value = learning.currentAssignment.starterCode;
+    invalidateAssignmentTest();
+  }
+  try { await saveProgress(); renderDraftLibrary(); }
+  catch (error) { learning.assignmentDrafts[assignmentId] = entry.code; if (learning.currentAssignment?.id === assignmentId && le('assignmentEditor')) le('assignmentEditor').value = entry.code; alert(error.message); renderDraftLibrary(); }
 }
 
 function exportAllDrafts() {
@@ -99,7 +113,7 @@ function showLesson(id) {
   }).join('');
   const assignment = lesson.assignment ? assignmentHtml(lesson.assignment) : '';
   const lessons = allLessons(), position = lessons.findIndex(item => item.id === id), previous = lessons[position - 1], next = lessons[position + 1];
-  le('lessonStage').innerHTML = `<div class="lesson-kicker"><span>第 ${lesson.chapter.number} 章</span><span>预计 ${lesson.duration} 分钟</span></div><h2>${esc(lesson.title)}</h2><p class="lesson-summary">${esc(lesson.summary)}</p>${blocks}${assignment}<div class="lesson-footer"><label for="lessonNotes"><strong>我的课程笔记</strong></label><textarea class="lesson-notes" id="lessonNotes" rows="4" placeholder="笔记按当前账号和课节保存">${esc(learning.lessonNotes[id] || '')}</textarea><button class="button secondary" id="saveLessonNotes" type="button">保存笔记</button><button class="button" id="toggleLesson" type="button">${learning.completed.includes(id) ? '取消完成标记' : '标记本节已完成'}</button><div class="lesson-navigation"><button class="button secondary" id="previousLesson" type="button" ${previous ? '' : 'disabled'}>← ${previous ? esc(previous.title) : '已经是第一节'}</button><button class="button secondary" id="nextLesson" type="button" ${next ? '' : 'disabled'}>${next ? esc(next.title) : '已经是最后一节'} →</button></div></div>`;
+  le('lessonStage').innerHTML = `<div class="lesson-kicker"><span>第 ${lesson.chapter.number} 章</span><span>预计 ${lesson.duration} 分钟</span></div><h2>${esc(lesson.title)}</h2><p class="lesson-summary">${esc(lesson.summary)}</p>${blocks}${assignment}<div class="lesson-footer"><label class="lesson-notes-label" for="lessonNotes"><strong>我的课程笔记</strong><small>等待完善</small></label><textarea class="lesson-notes" id="lessonNotes" rows="4" placeholder="笔记按当前账号和课节保存">${esc(learning.lessonNotes[id] || '')}</textarea><button class="button secondary" id="saveLessonNotes" type="button">保存笔记</button><button class="button" id="toggleLesson" type="button">${learning.completed.includes(id) ? '取消完成标记' : '标记本节已完成'}</button><div class="lesson-navigation"><button class="button secondary" id="previousLesson" type="button" ${previous ? '' : 'disabled'}>← ${previous ? esc(previous.title) : '已经是第一节'}</button><button class="button secondary" id="nextLesson" type="button" ${next ? '' : 'disabled'}>${next ? esc(next.title) : '已经是最后一节'} →</button></div></div>`;
   renderDirectory();
   document.querySelectorAll('[data-example]').forEach(button => button.onclick = () => { const block = lesson.body[Number(button.dataset.example)]; setEditor(block.code, `${lesson.title} · 示例`); le('codeWorkspace').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
   le('saveLessonNotes').onclick = saveLessonNotes;

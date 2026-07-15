@@ -1,6 +1,6 @@
 {
   "name": "polynomial-server-home",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Polynomial Server portal with courses, isolated Python labs and randomized assignment grading",
   "main": "server.js",

@@ -472,7 +472,21 @@
 }
 
 .lesson-notes { resize: vertical; }
+.lesson-notes-label { display: flex; align-items: center; gap: 9px; }
+.lesson-notes-label small {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+.draft-library-item .draft-library-actions { flex-wrap: wrap; }
 .lesson-navigation { display: flex; justify-content: space-between; gap: 10px; }
+
+@media (max-width: 760px) {
+  .draft-library-item .draft-library-actions { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+}
 
 .code-workspace { min-width: 0; padding: 18px; }
 
