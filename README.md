@@ -99,6 +99,14 @@ sudo systemctl reload nginx
 - 不要使用 README 示例密码。
 - `data/store.json` 含账号哈希和聊天记录，不要提交到公开 GitHub 仓库。
 - 建议定期备份 `data/store.json`。
+- 网盘实际文件位于 `data/drive/`，聊天上传位于 `data/uploads/`；备份时必须连同 `data/store.json` 一起保存，否则文件索引与内容无法对应。
+
+## 网盘与网络学习
+
+- `/drive.html`：私人网盘、公共共享盘和用户间分享。
+- `/learning.html`：Python 基础示例课程，学习进度和笔记按账号保存。
+- 管理员可在 `/admin.html` 为每位用户设置网盘额度和聊天、网盘、小游戏、网络学习等功能权限，并查看全部网盘文件。
+- 在线 Notebook 执行环境尚未启用，后续应使用隔离容器部署，不能直接在主 Node 进程中执行用户 Python 代码。
 
 ## 默认敏感词库
 

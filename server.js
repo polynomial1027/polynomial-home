@@ -4,7 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { WebSocketServer } = require('ws');
 const Busboy = require('busboy');
-const { load, save, hashPassword, verifyPassword } = require('./lib/store');
+const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser } = require('./lib/store');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -15,6 +15,8 @@ const state = load();
 const loginAttempts = new Map();
 const uploadDir = path.join(__dirname, 'data', 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
+const driveDir = path.join(__dirname, 'data', 'drive');
+fs.mkdirSync(driveDir, { recursive: true });
 const lexiconDir = path.join(__dirname, 'third_party', 'Sensitive-lexicon', 'Vocabulary');
 function loadDefaultLexicon() {
   if (!fs.existsSync(lexiconDir)) return { root: new Map(), count: 0 };
@@ -37,7 +39,9 @@ const currentUser = req => {
   const session = state.sessions.find(s => s.token === token && new Date(s.expiresAt) > new Date());
   return session ? state.users.find(u => u.id === session.userId && u.active) : null;
 };
-const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, createdAt: u.createdAt });
+const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, permissions: u.permissions, driveQuotaMB: u.driveQuotaMB, createdAt: u.createdAt });
+const allowed = (user, permission) => user?.role === 'admin' || user?.permissions?.[permission] === true;
+const denyUnless = (res, user, permission, message = '此账号未开放该功能') => { if (allowed(user, permission)) return true; json(res, 403, { error: message }); return false; };
 const body = req => new Promise((resolve, reject) => {
   let raw = ''; const maxBodyBytes = Math.max(20_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048);
   req.on('data', chunk => { raw += chunk; if (Buffer.byteLength(raw) > maxBodyBytes) reject(new Error('请求超过后台设置的存储上限')); });
@@ -58,6 +62,9 @@ const conversationFor = (id, user) => {
 const publicConversation = item => ({ id: item.id, title: item.title, type: item.type, createdBy: item.createdBy, memberIds: item.memberIds, createdAt: item.createdAt });
 const safeFileName = name => path.basename(String(name || 'file')).replace(/[\r\n"]/g, '_').slice(0, 180);
 const removeStoredFile = file => { try { fs.unlinkSync(path.join(uploadDir, file.storedName)); } catch {} };
+const removeDriveFile = file => { try { fs.unlinkSync(path.join(driveDir, file.storedName)); } catch {} };
+const driveUsed = userId => state.driveFiles.filter(file => file.ownerId === userId && file.scope === 'private').reduce((sum, file) => sum + Number(file.size || 0), 0);
+const canReadDriveFile = (user, file) => user.role === 'admin' || file.ownerId === user.id || (file.scope === 'public' && allowed(user, 'viewPublicDrive') && allowed(user, 'downloadPublicDrive')) || state.driveShares.some(share => share.fileId === file.id && share.recipientId === user.id);
 const filterSensitiveText = text => {
   let value = String(text || '');
   if (state.settings.sensitiveWordSource === 'default' && defaultLexicon.count) {
@@ -90,6 +97,19 @@ const readUpload = (req, user, conversation) => new Promise((resolve, reject) =>
   parser.on('finish', async () => { try { await writePromise; if (failure) { if (result) removeStoredFile(result); return reject(failure); } if (!result) return reject(new Error('没有收到文件')); resolve(result); } catch (error) { reject(error); } });
   req.pipe(parser);
 });
+const readDriveUpload = (req, user, scope) => new Promise((resolve, reject) => {
+  const limit = Math.max(1, Number(state.settings.maxUploadMB) || 10) * 1024 * 1024;
+  const parser = Busboy({ headers: req.headers, limits: { files: 1, fileSize: limit } });
+  let result = null, failure = null, writePromise = Promise.resolve();
+  parser.on('file', (_field, stream, info) => {
+    const id = crypto.randomUUID(), storedName = id, destination = path.join(driveDir, storedName), output = fs.createWriteStream(destination, { mode: 0o600 }); let size = 0;
+    stream.on('data', chunk => { size += chunk.length; }); stream.on('limit', () => { failure = new Error(`文件超过 ${state.settings.maxUploadMB} MB 限制`); }); stream.pipe(output);
+    writePromise = new Promise((done, fail) => { output.on('close', done); output.on('error', fail); });
+    result = { id, storedName, originalName: safeFileName(info.filename), mimeType: String(info.mimeType || 'application/octet-stream').slice(0, 100), size, ownerId: user.id, scope, createdAt: new Date().toISOString() };
+    stream.on('end', () => { if (result) result.size = size; });
+  });
+  parser.on('error', reject); parser.on('finish', async () => { try { await writePromise; if (failure) { if (result) removeDriveFile(result); return reject(failure); } if (!result) return reject(new Error('没有收到文件')); resolve(result); } catch (error) { reject(error); } }); req.pipe(parser);
+});
 
 async function api(req, res, url) {
   if (url.pathname === '/api/login' && req.method === 'POST') {
@@ -120,16 +140,21 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/messages' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
     const conversationId = url.searchParams.get('conversationId') || 'lobby';
     if (!conversationFor(conversationId, user)) return json(res, 403, { error: '无权访问该聊天' });
     return json(res, 200, { messages: state.messages.filter(message => message.conversationId === conversationId).slice(-Math.max(20, Number(state.settings.messageHistoryLimit) || 200)) });
   }
   if (url.pathname === '/api/messages' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; const data = await body(req); const conversationId = String(data.conversationId || 'lobby');
+    if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
+    if (conversationId === 'lobby' && !denyUnless(res, user, 'postLobby', '此账号只能查看大厅，不能发言')) return;
     if (!conversationFor(conversationId, user)) return json(res, 403, { error: '无权向该聊天发送消息' });
     const filteredText = filterSensitiveText(String(data.text || '').trim().slice(0, Number(state.settings.maxMessageLength) || 1000)); if (filteredText.error) return json(res, 400, { error: filteredText.error });
     const attachmentIds = Array.isArray(data.attachmentIds) ? data.attachmentIds.slice(0, Number(state.settings.maxAttachmentsPerMessage) || 5) : [];
     const attachments = attachmentIds.map(id => state.files.find(file => file.id === id && file.uploadedBy === user.id && file.conversationId === conversationId)).filter(Boolean).map(file => ({ id: file.id, originalName: file.originalName, mimeType: file.mimeType, size: file.size }));
+    const driveAttachments = (Array.isArray(data.driveFileIds) ? data.driveFileIds : []).slice(0, Number(state.settings.maxAttachmentsPerMessage) || 5).map(id => state.driveFiles.find(file => file.id === id && canReadDriveFile(user, file))).filter(Boolean).map(file => ({ id: file.id, drive: true, originalName: file.originalName, mimeType: file.mimeType, size: file.size }));
+    attachments.push(...driveAttachments.slice(0, Math.max(0, (Number(state.settings.maxAttachmentsPerMessage) || 5) - attachments.length)));
     if (!filteredText.text && !attachments.length) return json(res, 400, { error: '消息或附件不能为空' });
     const replyTarget = data.replyToId ? state.messages.find(message => message.id === data.replyToId && message.conversationId === conversationId) : null;
     const replyTo = replyTarget ? { id: replyTarget.id, displayName: replyTarget.displayName, text: replyTarget.text.slice(0, 160) } : null;
@@ -167,8 +192,9 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/conversations' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
     const visible = state.conversations.filter(item => user.role === 'admin' || item.memberIds.includes(user.id)).map(publicConversation);
-    return json(res, 200, { conversations: [{ id: 'lobby', title: '开发者大厅', type: 'lobby', memberIds: [] }, ...visible], users: state.users.filter(item => item.active).map(publicUser) });
+    return json(res, 200, { conversations: [{ id: 'lobby', title: '开发者大厅', type: 'lobby', memberIds: [] }, ...visible], users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active).map(publicUser) : [] });
   }
   if (url.pathname === '/api/conversations' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; const data = await body(req);
@@ -177,6 +203,8 @@ async function api(req, res, url) {
     if (memberIds.length < 2) return json(res, 400, { error: '至少选择一位聊天成员' });
     if (memberIds.length > Number(state.settings.maxGroupMembers)) return json(res, 400, { error: `聊天组最多 ${state.settings.maxGroupMembers} 人` });
     const type = data.type === 'direct' && memberIds.length === 2 ? 'direct' : 'group';
+    if (type === 'direct' && !denyUnless(res, user, 'createDirect', '此账号不能创建私聊')) return;
+    if (type === 'group' && !denyUnless(res, user, 'createGroups', '此账号不能创建聊天组')) return;
     if (type === 'direct') { const existing = state.conversations.find(item => item.type === 'direct' && item.memberIds.length === 2 && memberIds.every(id => item.memberIds.includes(id))); if (existing) return json(res, 200, { conversation: publicConversation(existing) }); }
     const title = type === 'direct' ? memberIds.map(id => state.users.find(item => item.id === id)?.displayName).filter(Boolean).join(' 与 ') : String(data.title || '').trim().slice(0, 40);
     if (!title) return json(res, 400, { error: '请输入聊天组名称' });
@@ -194,6 +222,8 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/upload' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; if (!state.settings.allowFileUploads) return json(res, 403, { error: '管理员已关闭文件上传' }); const conversationId = url.searchParams.get('conversationId') || 'lobby'; const conversation = conversationFor(conversationId, user); if (!conversation) return json(res, 403, { error: '无权向该聊天上传文件' });
+    if (!denyUnless(res, user, 'accessChat', '此账号不能使用聊天功能')) return;
+    if (conversationId === 'lobby' && !denyUnless(res, user, 'postLobby', '此账号不能在大厅发言')) return;
     const file = await readUpload(req, user, conversation); state.files.push(file); save(state); return json(res, 201, { file: { id: file.id, originalName: file.originalName, mimeType: file.mimeType, size: file.size } });
   }
   const fileMatch = url.pathname.match(/^\/api\/files\/([^/]+)$/);
@@ -202,14 +232,46 @@ async function api(req, res, url) {
     const target = path.join(uploadDir, file.storedName); if (!fs.existsSync(target)) return json(res, 404, { error: '文件不存在' });
     const inline = /^(image\/(?:png|jpeg|gif|webp))$/.test(file.mimeType); res.writeHead(200, { 'Content-Type': inline ? file.mimeType : 'application/octet-stream', 'Content-Length': file.size, 'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.originalName)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=3600' }); return fs.createReadStream(target).pipe(res);
   }
+  if (url.pathname === '/api/drive' && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'driveEnabled', '此账号的网盘已关闭')) return;
+    const privateFiles = state.driveFiles.filter(file => file.scope === 'private' && file.ownerId === user.id);
+    const sharedFiles = state.driveShares.filter(share => share.recipientId === user.id).map(share => state.driveFiles.find(file => file.id === share.fileId)).filter(Boolean);
+    const publicFiles = allowed(user, 'viewPublicDrive') ? state.driveFiles.filter(file => file.scope === 'public') : [];
+    return json(res, 200, { privateFiles, sharedFiles, publicFiles, usedBytes: driveUsed(user.id), quotaBytes: Number(user.driveQuotaMB || 0) * 1024 * 1024, permissions: user.permissions });
+  }
+  if (url.pathname === '/api/drive/users' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'driveEnabled')) return; return json(res, 200, { users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active && item.id !== user.id).map(publicUser) : [] }); }
+  if (url.pathname === '/api/drive/upload' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'driveEnabled', '此账号的网盘已关闭')) return;
+    const scope = url.searchParams.get('scope') === 'public' ? 'public' : 'private';
+    if (scope === 'public' && !denyUnless(res, user, 'uploadPublicDrive', '此账号不能上传到公共共享盘')) return;
+    const file = await readDriveUpload(req, user, scope);
+    if (scope === 'private' && driveUsed(user.id) + file.size > Number(user.driveQuotaMB || 0) * 1024 * 1024) { removeDriveFile(file); return json(res, 400, { error: '私人网盘空间不足，请删除文件或联系管理员增加额度' }); }
+    state.driveFiles.push(file); save(state); return json(res, 201, { file });
+  }
+  const driveContentMatch = url.pathname.match(/^\/api\/drive\/files\/([^/]+)\/content$/);
+  if (driveContentMatch && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return; const file = state.driveFiles.find(item => item.id === driveContentMatch[1]);
+    if (!file || !canReadDriveFile(user, file)) return json(res, 404, { error: '文件不存在或无权下载' }); const target = path.join(driveDir, file.storedName); if (!fs.existsSync(target)) return json(res, 404, { error: '文件内容不存在' });
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': file.size, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }); return fs.createReadStream(target).pipe(res);
+  }
+  const driveFileMatch = url.pathname.match(/^\/api\/drive\/files\/([^/]+)$/);
+  if (driveFileMatch && req.method === 'DELETE') {
+    const user = requireUser(req, res); if (!user) return; const index = state.driveFiles.findIndex(item => item.id === driveFileMatch[1]); if (index < 0) return json(res, 404, { error: '文件不存在' }); const file = state.driveFiles[index]; if (user.role !== 'admin' && file.ownerId !== user.id) return json(res, 403, { error: '只能删除自己的文件' }); state.driveFiles.splice(index, 1); state.driveShares = state.driveShares.filter(share => share.fileId !== file.id); removeDriveFile(file); save(state); return json(res, 200, { ok: true });
+  }
+  if (driveFileMatch && req.method === 'POST' && url.searchParams.get('action') === 'share') {
+    const user = requireUser(req, res); if (!user) return; const file = state.driveFiles.find(item => item.id === driveFileMatch[1]); if (!file || (user.role !== 'admin' && file.ownerId !== user.id)) return json(res, 404, { error: '文件不存在' }); const data = await body(req); const recipient = state.users.find(item => item.id === data.recipientId && item.active); if (!recipient || recipient.id === file.ownerId) return json(res, 400, { error: '请选择其他有效用户' }); if (!state.driveShares.some(item => item.fileId === file.id && item.recipientId === recipient.id)) state.driveShares.push({ id: crypto.randomUUID(), fileId: file.id, recipientId: recipient.id, sharedBy: user.id, createdAt: new Date().toISOString() }); save(state); return json(res, 200, { ok: true });
+  }
+  if (url.pathname === '/api/admin/drive' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { files: state.driveFiles, shares: state.driveShares, users: state.users.map(publicUser) }); }
+  if (url.pathname === '/api/learning/progress' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-basics'); return json(res, 200, { progress: progress || null }); }
+  if (url.pathname === '/api/learning/progress' && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessLearning', '此账号不能访问网络学习')) return; const data = await body(req); let progress = state.learningProgress.find(item => item.userId === user.id && item.courseId === 'python-basics'); if (!progress) { progress = { id: crypto.randomUUID(), userId: user.id, courseId: 'python-basics' }; state.learningProgress.push(progress); } progress.completedLessons = Array.isArray(data.completedLessons) ? [...new Set(data.completedLessons.map(String))].slice(0, 100) : []; progress.notes = String(data.notes || '').slice(0, 20000); progress.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { progress }); }
   if (url.pathname === '/api/announcements' && req.method === 'GET') return json(res, 200, { announcements: state.announcements.slice().sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)) });
   if (url.pathname === '/api/announcements' && req.method === 'POST') { if (!requireUser(req, res, 'admin')) return; const data = await body(req); const title = String(data.title || '').trim(), content = String(data.content || '').trim(); if (!title || !content) return json(res, 400, { error: '标题和内容不能为空' }); const item = { id: crypto.randomUUID(), title: title.slice(0, 100), content: content.slice(0, 10000), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; state.announcements.push(item); save(state); return json(res, 201, { announcement: item }); }
   const announcementMatch = url.pathname.match(/^\/api\/announcements\/([^/]+)$/);
   if (announcementMatch && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; const item = state.announcements.find(entry => entry.id === announcementMatch[1]); if (!item) return json(res, 404, { error: '公告不存在' }); const data = await body(req); const title = String(data.title || '').trim(), content = String(data.content || '').trim(); if (!title || !content) return json(res, 400, { error: '标题和内容不能为空' }); item.title = title.slice(0, 100); item.content = content.slice(0, 10000); item.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { announcement: item }); }
   if (announcementMatch && req.method === 'DELETE') { if (!requireUser(req, res, 'admin')) return; const index = state.announcements.findIndex(entry => entry.id === announcementMatch[1]); if (index < 0) return json(res, 404, { error: '公告不存在' }); state.announcements.splice(index, 1); save(state); return json(res, 200, { ok: true }); }
   const gameSaveMatch = url.pathname.match(/^\/api\/games\/([a-zA-Z0-9_-]{1,60})\/save$/);
-  if (gameSaveMatch && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; const item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); return json(res, 200, { save: item ? { data: item.data, updatedAt: item.updatedAt } : null }); }
-  if (gameSaveMatch && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; const data = await body(req); const serialized = JSON.stringify(data.data); if (Buffer.byteLength(serialized) > Number(state.settings.maxGameSaveKB) * 1024) return json(res, 400, { error: `游戏存档超过 ${state.settings.maxGameSaveKB} KB 限制` }); let item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); if (!item) { item = { id: crypto.randomUUID(), userId: user.id, gameId: gameSaveMatch[1], data: null, updatedAt: null }; state.gameSaves.push(item); } item.data = data.data; item.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { save: { data: item.data, updatedAt: item.updatedAt } }); }
+  if (gameSaveMatch && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessGames', '此账号不能使用小游戏')) return; const item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); return json(res, 200, { save: item ? { data: item.data, updatedAt: item.updatedAt } : null }); }
+  if (gameSaveMatch && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessGames', '此账号不能使用小游戏')) return; const data = await body(req); const serialized = JSON.stringify(data.data); if (Buffer.byteLength(serialized) > Number(state.settings.maxGameSaveKB) * 1024) return json(res, 400, { error: `游戏存档超过 ${state.settings.maxGameSaveKB} KB 限制` }); let item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); if (!item) { item = { id: crypto.randomUUID(), userId: user.id, gameId: gameSaveMatch[1], data: null, updatedAt: null }; state.gameSaves.push(item); } item.data = data.data; item.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { save: { data: item.data, updatedAt: item.updatedAt } }); }
   if (url.pathname === '/api/settings' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { settings: state.settings }); }
   if (url.pathname === '/api/chat-config' && req.method === 'GET') { if (!requireUser(req, res)) return; const { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } = state.settings; return json(res, 200, { settings: { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } }); }
   if (url.pathname === '/api/settings' && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; const data = await body(req); const settings = { maxUploadMB: Number(data.maxUploadMB), editWindowMinutes: Number(data.editWindowMinutes), maxGroupMembers: Number(data.maxGroupMembers), maxMessageLength: Number(data.maxMessageLength), maxAttachmentsPerMessage: Number(data.maxAttachmentsPerMessage), messageHistoryLimit: Number(data.messageHistoryLimit), maxConversationsPerUser: Number(data.maxConversationsPerUser), maxGameSaveKB: Number(data.maxGameSaveKB), allowFileUploads: Boolean(data.allowFileUploads), sensitiveWordSource: data.sensitiveWordSource === 'default' ? 'default' : 'custom', sensitiveWords: String(data.sensitiveWords || '').split(/[\n,，]/).map(word => word.trim()).filter(Boolean), sensitiveWordMode: data.sensitiveWordMode === 'reject' ? 'reject' : 'mask' }; const minimums = { maxUploadMB:[1,'上传上限'],editWindowMinutes:[0,'编辑时限'],maxGroupMembers:[2,'聊天组人数'],maxMessageLength:[1,'消息字数'],maxAttachmentsPerMessage:[1,'附件数量'],messageHistoryLimit:[1,'历史消息数量'],maxConversationsPerUser:[1,'聊天数量'],maxGameSaveKB:[1,'游戏存档大小'] }; for (const [key,[min,label]] of Object.entries(minimums)) if (!Number.isSafeInteger(settings[key]) || settings[key] < min) return json(res, 400, { error: `${label}必须是不小于 ${min} 的整数` }); state.settings = settings; save(state); return json(res, 200, { settings }); }
@@ -222,7 +284,7 @@ async function api(req, res, url) {
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
     if (password.length < 10) return json(res, 400, { error: '密码至少 10 位' });
     if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) return json(res, 409, { error: '账号已存在' });
-    const user = { id: crypto.randomUUID(), username, displayName: String(data.displayName || username).trim().slice(0, 30), role: data.role === 'admin' ? 'admin' : 'member', active: true, passwordHash: hashPassword(password), createdAt: new Date().toISOString() };
+    const user = normalizeUser({ id: crypto.randomUUID(), username, displayName: String(data.displayName || username).trim().slice(0, 30), role: data.role === 'admin' ? 'admin' : 'member', active: true, passwordHash: hashPassword(password), permissions: { ...defaultPermissions, ...(data.permissions || {}) }, driveQuotaMB: Number(data.driveQuotaMB) || 1024, createdAt: new Date().toISOString() });
     state.users.push(user); save(state); return json(res, 201, { user: publicUser(user) });
   }
   const match = url.pathname.match(/^\/api\/users\/([^/]+)$/);
@@ -240,6 +302,8 @@ async function api(req, res, url) {
     target.username = username; target.displayName = displayName;
     if (typeof data.active === 'boolean') target.active = data.active;
     if (data.role === 'admin' || data.role === 'member') target.role = data.role;
+    if (data.permissions && typeof data.permissions === 'object') target.permissions = { ...defaultPermissions, ...target.permissions, ...Object.fromEntries(Object.keys(defaultPermissions).map(key => [key, Boolean(data.permissions[key])])) };
+    if (data.driveQuotaMB !== undefined) { const quota = Number(data.driveQuotaMB); if (!Number.isSafeInteger(quota) || quota < 0) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' }); target.driveQuotaMB = quota; }
     if (data.password) { if (String(data.password).length < 10) return json(res, 400, { error: '密码至少 10 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
     save(state); return json(res, 200, { user: publicUser(target) });
@@ -255,7 +319,7 @@ async function api(req, res, url) {
 
 function staticFile(req, res, url) {
   const clean = url.pathname === '/' ? '/index.html' : url.pathname;
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|chat|admin)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/');
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|chat|admin|drive|learning)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/');
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }
@@ -281,7 +345,7 @@ const broadcast = (data, conversationId = null) => {
   wss.clients.forEach(client => { if (client.readyState === 1 && (!conversationId || conversationFor(conversationId, client.user))) client.send(payload); });
 };
 server.on('upgrade', (req, socket, head) => {
-  if (new URL(req.url, 'http://localhost').pathname !== '/chat-socket' || !currentUser(req)) return socket.destroy();
+  const user = currentUser(req); if (new URL(req.url, 'http://localhost').pathname !== '/chat-socket' || !user || !allowed(user, 'accessChat')) return socket.destroy();
   wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
 });
 wss.on('connection', (ws, req) => {
@@ -290,6 +354,7 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(raw); const filteredText = filterSensitiveText(String(data.text || '').trim().slice(0, Number(state.settings.maxMessageLength) || 1000)); if (filteredText.error) { ws.send(JSON.stringify({ type: 'error', error: filteredText.error })); return; } const text = filteredText.text; const conversationId = String(data.conversationId || 'lobby');
       if (!conversationFor(conversationId, user)) return;
+      if (conversationId === 'lobby' && !allowed(user, 'postLobby')) { ws.send(JSON.stringify({ type: 'error', error: '此账号不能在大厅发言' })); return; }
       const attachmentIds = Array.isArray(data.attachmentIds) ? data.attachmentIds.slice(0, Number(state.settings.maxAttachmentsPerMessage) || 5) : [];
       const attachments = attachmentIds.map(id => state.files.find(file => file.id === id && file.uploadedBy === user.id && file.conversationId === conversationId)).filter(Boolean).map(file => ({ id: file.id, originalName: file.originalName, mimeType: file.mimeType, size: file.size }));
       if (!text && !attachments.length) return;
