@@ -122,6 +122,24 @@
   margin-top: 0;
 }
 
+.chat-page .dialog-title-block {
+  min-width: 0;
+}
+
+.chat-page .dialog-title-block p {
+  max-width: 390px;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chat-page .dialog-head > button {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  cursor: pointer;
+}
+
 @media (max-width: 760px) {
   .chat-page .chat-layout {
     height: auto;
