@@ -1,6 +1,6 @@
 {
   "name": "polynomial-server-home",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Polynomial Server portal with collaboration, learning, games, Go multiplayer and KataGo",
   "main": "server.js",

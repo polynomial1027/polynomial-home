@@ -191,7 +191,7 @@ function renderGame() {
   renderHistory(game.moves, game.events);
   if (game.status === 'scoring') renderScoreTools();
   const ownTurn = game.status === 'active' && game.ownColor === game.toPlay;
-  setBoardMessage(game.engineThinking ? 'KataGo 正在思考…' : game.engineError ? `KataGo 本次落子失败：${game.engineError}。可点击“重试机器人”。` : game.status === 'scoring' ? (game.scoring?.dispute ? '双方死子方案不同：可以调整、接受对方方案或恢复对局。' : '请标记死子并确认自己的数目方案。') : game.status === 'finished' || game.status === 'void' ? `棋局结束：${game.result}` : game.mode === 'shared' ? (game.shared?.locked ? '棋盘已锁定。' : '双方可以自由摆棋。') : ownTurn ? '轮到你落子。' : '等待对方落子。', Boolean(game.engineError));
+  setBoardMessage(game.engineThinking ? 'KataGo 正在思考…' : game.status === 'scoring' ? (game.scoring?.error ? `KataGo 自动结算失败：${game.scoring.error}。请点击“重试自动结算”。` : 'KataGo 正在统一判断目数与胜负…') : game.engineError ? `KataGo 本次落子失败：${game.engineError}。可点击“重试机器人”。` : game.status === 'finished' || game.status === 'void' ? `棋局结束：${game.result}` : game.mode === 'shared' ? (game.shared?.locked ? '棋盘已锁定。' : '双方可以自由摆棋。') : ownTurn ? '轮到你落子。' : '等待对方落子。', Boolean(game.engineError || game.scoring?.error));
 }
 
 function setPlayerStrip(id, player, color, game) {
@@ -211,9 +211,9 @@ function updateClockElement(element, color, game) {
 }
 
 function renderScoreTools() {
-  const game = goState.game, proposals = game.scoring?.proposals || {}, opponent = game.participantIds.find(id => id !== goState.user.id), own = proposals[goState.user.id] || [], other = proposals[opponent] || [];
-  $('scorePreview').innerHTML = `<div class="score-preview-line"><span>我的死子标记</span><b>${own.length}</b></div><div class="score-preview-line"><span>对方死子标记</span><b>${other.length}</b></div><div class="score-preview-line"><span>我的确认</span><b>${game.scoring?.confirmations?.[goState.user.id] ? '已确认' : '未确认'}</b></div>`;
-  $('acceptOpponentScore').disabled = !opponent || !proposals[opponent];
+  const scoring = goState.game.scoring || {};
+  $('scorePreview').innerHTML = `<div class="score-preview-line"><span>判定来源</span><b>KataGo</b></div><div class="score-preview-line"><span>当前状态</span><b>${scoring.thinking || scoring.pending ? '计算中' : scoring.error ? '等待重试' : '准备结算'}</b></div>`;
+  $('retryScore').disabled = Boolean(scoring.thinking);
 }
 
 function renderHistory(moves = [], events = []) {
@@ -222,7 +222,7 @@ function renderHistory(moves = [], events = []) {
 }
 
 function eventLabel(event) {
-  return ({ started: '棋局开始', 'undo-requested': '申请悔棋', 'undo-accepted': '悔棋已同意', 'undo-declined': '悔棋被拒绝', 'scoring-resumed': '恢复对局', finished: `棋局结束 ${event.result || ''}`, 'engine-error': 'KataGo 暂时不可用' })[event.type] || event.type;
+  return ({ started: '棋局开始', 'undo-requested': '申请悔棋', 'undo-accepted': '悔棋已同意', 'undo-declined': '悔棋被拒绝', finished: `棋局结束 ${event.result || ''}`, 'engine-error': 'KataGo 暂时不可用', 'engine-score-error': 'KataGo 自动结算失败' })[event.type] || event.type;
 }
 
 function coordinateName(x, y, size) {
@@ -241,7 +241,7 @@ function handleBoardPoint(x, y) {
   if (goState.mode === 'study') return studyPoint(x, y);
   if (goState.mode === 'puzzle') return puzzlePoint(x, y);
   if (!goState.game) return;
-  if (goState.game.status === 'scoring') return toggleDeadGroup(x, y);
+  if (goState.game.status === 'scoring') return;
   if (goState.game.mode === 'shared') return gameAction({ type: goState.sharedColor === 'erase' ? 'erase' : 'setup', color: goState.sharedColor, x, y }, '同步棋盘…');
   if (goState.game.status === 'active' && goState.game.ownColor === goState.game.toPlay) gameAction({ type: 'move', x, y }, goState.game.mode === 'ai' ? '落子并等待 KataGo…' : '确认落子…');
 }
@@ -428,8 +428,7 @@ function bindStaticControls() {
   $('passMove').onclick = () => gameAction({ type: 'pass' }, '提交停一手…'); $('requestUndo').onclick = () => gameAction({ type: 'undo-request' }, '发送悔棋请求…'); $('resignGame').onclick = () => confirm('确定认输并结束本局吗？') && gameAction({ type: 'resign' }, '结束棋局…');
   $('retryAi').onclick = () => gameAction({ type: 'retry-ai' }, '重新请求 KataGo 落子…');
   $('acceptUndo').onclick = () => gameAction({ type: 'undo-response', accept: true }); $('declineUndo').onclick = () => gameAction({ type: 'undo-response', accept: false });
-  $('confirmScore').onclick = async () => { await gameAction({ type: 'scoring-update', dead: [...goState.dead] }, '保存数目方案…'); if (goState.game?.status === 'scoring') await gameAction({ type: 'scoring-confirm' }, '确认数目…'); };
-  $('acceptOpponentScore').onclick = () => gameAction({ type: 'scoring-accept-opponent' }, '接受方案…'); $('resumeGame').onclick = () => gameAction({ type: 'scoring-resume' }, '恢复对局…');
+  $('retryScore').onclick = () => gameAction({ type: 'retry-score' }, '重新请求 KataGo 结算…');
   document.querySelectorAll('[data-shared-color]').forEach(button => button.onclick = () => { goState.sharedColor = button.dataset.sharedColor; document.querySelectorAll('[data-shared-color]').forEach(item => item.classList.toggle('active', item === button)); });
   $('sharedUndo').onclick = () => gameAction({ type: 'undo' }); $('sharedRedo').onclick = () => gameAction({ type: 'redo' }); $('sharedClear').onclick = () => confirm('确定清空共享棋盘吗？') && gameAction({ type: 'clear' }); $('sharedLock').onclick = () => gameAction({ type: 'lock', locked: !goState.game.shared.locked });
   document.querySelectorAll('[data-study-method]').forEach(button => button.onclick = () => { goState.study.method = button.dataset.studyMethod; document.querySelectorAll('[data-study-method]').forEach(item => item.classList.toggle('active', item === button)); renderStudy(); });

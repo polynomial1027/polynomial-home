@@ -278,7 +278,8 @@ function sanitizeGoSettings(data) {
     id: String(item.id || `profile-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30),
     name: String(item.name || `难度 ${index + 1}`).trim().slice(0, 30), description: String(item.description || '').slice(0, 120),
     maxVisits: Math.round(safeNumberSetting(item.maxVisits, 1, 100000, '搜索访问次数')),
-    maxTime: safeNumberSetting(item.maxTime, 0.05, 120, '单步思考时间')
+    maxTime: safeNumberSetting(item.maxTime, 0.05, 120, '单步思考时间'),
+    candidatePool: Math.round(safeNumberSetting(item.candidatePool ?? ({ beginner: 10, easy: 5, medium: 2, strong: 1 }[item.id] || 1), 1, 20, '候选落点池'))
   }));
   if (profiles.some(item => !item.id) || new Set(profiles.map(item => item.id)).size !== profiles.length) throw new GoRuleError('机器人难度 id 必须非空且不能重复', 'INVALID_SETTINGS');
   const absolutePath = (value, fallback, label) => { const result = String(value ?? fallback).trim(); if (!path.isAbsolute(result) || result.includes('\0')) throw new GoRuleError(`${label}必须是绝对路径`, 'INVALID_SETTINGS'); return result.slice(0, 500); };
@@ -316,6 +317,10 @@ function sanitizeGoSettings(data) {
     goAiEnabled: data.goAiEnabled === undefined ? current.goAiEnabled !== false : Boolean(data.goAiEnabled),
     goAiMaxConcurrent: 1,
     goAiMoveTimeoutSeconds: Math.round(safeNumberSetting(data.goAiMoveTimeoutSeconds ?? current.goAiMoveTimeoutSeconds, 5, 120, '引擎超时')),
+    goAiResignWinrateThreshold: safeNumberSetting(data.goAiResignWinrateThreshold ?? current.goAiResignWinrateThreshold ?? 0.5, 0, 1, '自动认输胜率阈值'),
+    goAiResignConsecutiveTurns: Math.round(safeNumberSetting(data.goAiResignConsecutiveTurns ?? current.goAiResignConsecutiveTurns ?? 12, 1, 100, '自动认输连续回合')),
+    goScoreMaxVisits: Math.round(safeNumberSetting(data.goScoreMaxVisits ?? current.goScoreMaxVisits ?? 160, 1, 100000, '终局点目访问次数')),
+    goScoreMaxTime: safeNumberSetting(data.goScoreMaxTime ?? current.goScoreMaxTime ?? 6, 0.05, 120, '终局点目时间'),
     goKataGoBinary: absolutePath(data.goKataGoBinary, current.goKataGoBinary, 'KataGo 程序路径'),
     goKataGoModel: absolutePath(data.goKataGoModel, current.goKataGoModel, 'KataGo 模型路径'),
     goKataGoConfig: absolutePath(data.goKataGoConfig, current.goKataGoConfig, 'KataGo 配置路径'),
@@ -449,10 +454,7 @@ async function api(req, res, url) {
     else if (data.type === 'resign') game = goService.resign(user, id);
     else if (data.type === 'undo-request') game = goService.requestUndo(user, id);
     else if (data.type === 'undo-response') game = goService.respondUndo(user, id, Boolean(data.accept));
-    else if (data.type === 'scoring-update') game = goService.updateScoring(user, id, data.dead);
-    else if (data.type === 'scoring-confirm') game = goService.confirmScoring(user, id);
-    else if (data.type === 'scoring-accept-opponent') game = goService.acceptOpponentScore(user, id);
-    else if (data.type === 'scoring-resume') game = goService.resumeFromScoring(user, id);
+    else if (data.type === 'retry-score') game = goService.retryScoring(user, id);
     else if (data.type === 'retry-ai') game = goService.retryEngine(user, id);
     else if (['setup', 'erase', 'undo', 'redo', 'clear', 'lock'].includes(data.type)) game = goService.sharedAction(user, id, data);
     else return json(res, 400, { error: '未知围棋操作' });
@@ -460,6 +462,7 @@ async function api(req, res, url) {
       const engineColor = game.blackPlayer?.type === 'engine' ? 'B' : 'W';
       if (goService.position(game).toPlay === engineColor) await goService.engineTurn(game);
     }
+    if (game.status === 'scoring') await goService.finalizeWithKataGo(game);
     return json(res, 200, { game: goService.gameView(game, user) });
   }
   const goGameMatch = url.pathname.match(/^\/api\/go\/games\/([^/]+)$/);

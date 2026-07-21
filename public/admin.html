@@ -107,7 +107,11 @@
           <label class="setting-row"><span><strong>模型文件</strong><small>.bin.gz 的绝对路径</small></span><input id="goKataGoModel"></label>
           <label class="setting-row"><span><strong>GTP 配置文件</strong><small>配置文件绝对路径</small></span><input id="goKataGoConfig"></label>
           <label class="setting-row"><span><strong>单步超时</strong><small>秒，当前低内存服务器建议 30–60</small></span><input id="goAiMoveTimeoutSeconds" type="number" min="5" max="120"></label>
-          <label class="setting-row setting-row-textarea"><span><strong>机器人难度 JSON</strong><small>字段：id、name、description、maxVisits、maxTime</small></span><textarea id="goAiProfiles" rows="10"></textarea></label>
+          <label class="setting-row"><span><strong>自动认输胜率</strong><small>0–1；默认 0.5 表示低于 50%</small></span><input id="goAiResignWinrateThreshold" type="number" min="0" max="1" step="0.01"></label>
+          <label class="setting-row"><span><strong>连续低胜率回合</strong><small>默认 12 个机器人回合后自动认输</small></span><input id="goAiResignConsecutiveTurns" type="number" min="1" max="100"></label>
+          <label class="setting-row"><span><strong>终局点目访问次数</strong><small>KataGo 终局判定使用，默认 160</small></span><input id="goScoreMaxVisits" type="number" min="1" max="100000"></label>
+          <label class="setting-row"><span><strong>终局点目时间</strong><small>秒，默认 6</small></span><input id="goScoreMaxTime" type="number" min="0.05" max="120" step="0.05"></label>
+          <label class="setting-row setting-row-textarea"><span><strong>机器人难度 JSON</strong><small>字段：id、name、description、maxVisits、maxTime、candidatePool；候选池越大越弱</small></span><textarea id="goAiProfiles" rows="12"></textarea></label>
         </div></details>
         <details class="settings-category"><summary><div><span class="category-icon">⌁</span><span><strong>研究与外观</strong><small>研究存档和内置皮肤的允许范围</small></span></div><span class="category-arrow">⌄</span></summary><div class="settings-list">
           <label class="setting-row"><span><strong>每人研究棋谱上限</strong><small>份数</small></span><input id="goStudyMaxCount" type="number" min="1"></label>

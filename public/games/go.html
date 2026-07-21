@@ -71,7 +71,7 @@
 
         <section class="room-card tool-card hidden" id="sharedTools"><h3>共享棋盘</h3><div class="tool-row"><button data-shared-color="B" class="active">黑棋</button><button data-shared-color="W">白棋</button><button data-shared-color="erase">擦除</button></div><div class="tool-row"><button id="sharedUndo">撤销</button><button id="sharedRedo">重做</button><button id="sharedClear">清空</button><button id="sharedLock">锁定</button></div></section>
 
-        <section class="room-card scoring-card hidden" id="scoringTools"><h3>双方数目确认</h3><p>点击棋块标记你认为的死子。双方方案一致后系统自动计算；不一致时可继续调整、接受对方方案或恢复对局。</p><div class="tool-row"><button id="confirmScore">确认我的方案</button><button id="acceptOpponentScore">接受对方方案</button><button id="resumeGame">恢复对局</button></div><div id="scorePreview"></div></section>
+        <section class="room-card scoring-card hidden" id="scoringTools"><h3>KataGo 自动结算</h3><p>双方连续停一手后，由服务器调用 KataGo 统一判断目数与胜负，玩家无需也不能自行选择死子。</p><div class="tool-row"><button id="retryScore">重试自动结算</button></div><div id="scorePreview"></div></section>
 
         <section class="room-card puzzle-card hidden" id="puzzleTools"><h3 id="puzzleTitle">题目</h3><p id="puzzleObjective"></p><div class="tool-row"><button id="puzzleHint">提示</button><button id="puzzleReset">重置</button></div><p id="puzzleFeedback"></p></section>
 
