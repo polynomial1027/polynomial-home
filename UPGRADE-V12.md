@@ -1,4 +1,6 @@
-# 升级到 Polynomial Server Home 0.1.5
+# 历史文档：升级到 Polynomial Server Home 0.1.5
+
+> 本文件只保留 0.1.5 的历史说明。部署或升级 0.2.0 时不要执行这里的旧流程，请使用根目录的 `DEPLOY-V0.2.0.md`。
 
 本压缩包是完整源码。它保留管理后台、网盘、中文文件名修复和现有 Notebook 存档，并把 Python 实验室整合到网络学习。
 

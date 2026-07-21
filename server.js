@@ -8,9 +8,12 @@ const { promisify } = require('node:util');
 const { WebSocketServer } = require('ws');
 const Busboy = require('busboy');
 const httpProxy = require('http-proxy');
-const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser } = require('./lib/store');
+const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser, dataDir } = require('./lib/store');
 const { publicCourse, getAssignment, makeEvaluation, makeVisibleEvaluation } = require('./lib/python-course');
 const { localizeAnnouncement } = require('./lib/server-i18n');
+const { GoRuleError } = require('./lib/go-engine');
+const { GoService } = require('./lib/go-service');
+const { KataGoManager } = require('./lib/katago');
 
 const execFileAsync = promisify(execFile);
 
@@ -21,16 +24,23 @@ const nestedPublicDir = path.join(__dirname, 'public');
 const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nestedPublicDir : __dirname;
 const state = load();
 const loginAttempts = new Map();
+const feedbackAttempts = new Map();
 const notebookActivity = new Map();
 const notebookSockets = new Map();
 const learningRunsInFlight = new Set();
 const learningLastRun = new Map();
 const assignmentTestPasses = new Map();
 const NOTEBOOK_CTL = '/usr/local/sbin/polynomial-notebookctl';
-const uploadDir = path.join(__dirname, 'data', 'uploads');
+const uploadDir = path.join(dataDir, 'uploads');
 const requestLanguage = req => String(req.headers['accept-language'] || '').toLowerCase().startsWith('en') ? 'en' : 'zh';
+const clientAddress = req => {
+  const remote = String(req.socket.remoteAddress || 'unknown');
+  const trustedLocalProxy = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote);
+  const forwarded = trustedLocalProxy ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  return (forwarded || remote).slice(0, 100);
+};
 fs.mkdirSync(uploadDir, { recursive: true });
-const driveDir = path.join(__dirname, 'data', 'drive');
+const driveDir = path.join(dataDir, 'drive');
 fs.mkdirSync(driveDir, { recursive: true });
 const lexiconDir = path.join(__dirname, 'third_party', 'Sensitive-lexicon', 'Vocabulary');
 function loadDefaultLexicon() {
@@ -57,6 +67,28 @@ const currentUser = req => {
 const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, permissions: u.permissions, driveQuotaMB: u.driveQuotaMB, createdAt: u.createdAt });
 const allowed = (user, permission) => user?.role === 'admin' || user?.permissions?.[permission] === true;
 const denyUnless = (res, user, permission, message = '此账号未开放该功能') => { if (allowed(user, permission)) return true; json(res, 403, { error: message }); return false; };
+const goWss = new WebSocketServer({ noServer: true });
+const broadcastGo = (data, targetIds = null) => {
+  const payload = JSON.stringify(data), targets = targetIds ? new Set(targetIds) : null;
+  goWss.clients.forEach(client => { if (client.readyState === 1 && (!targets || targets.has(client.user?.id))) client.send(payload); });
+};
+const kataGo = new KataGoManager(() => ({
+  enabled: state.settings.goAiEnabled !== false,
+  binary: state.settings.goKataGoBinary,
+  model: state.settings.goKataGoModel,
+  config: state.settings.goKataGoConfig,
+  timeoutMs: Number(state.settings.goAiMoveTimeoutSeconds || 30) * 1000
+}));
+const goService = new GoService({ state, save, can: allowed, publicUser, kataGo, broadcast: broadcastGo });
+const restartDisconnectAt = new Date().toISOString();
+let restoredActiveGames = false;
+for (const game of state.goGames.filter(item => ['active', 'scoring'].includes(item.status))) {
+  game.disconnects ||= {};
+  for (const userId of game.participantIds || []) {
+    if (!game.disconnects[userId]) { game.disconnects[userId] = restartDisconnectAt; restoredActiveGames = true; }
+  }
+}
+if (restoredActiveGames) save(state);
 
 const notebookConfig = () => ({
   maxConcurrent: Number(state.settings.notebookMaxConcurrent) || 2,
@@ -146,9 +178,13 @@ function closeNotebookSockets(userId, token = null) {
   for (const [socket, socketToken] of sockets) if (!token || token === socketToken) socket.destroy();
 }
 const body = req => new Promise((resolve, reject) => {
-  let raw = ''; const maxBodyBytes = Math.max(64_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048);
-  req.on('data', chunk => { raw += chunk; if (Buffer.byteLength(raw) > maxBodyBytes) reject(new Error('请求超过后台设置的存储上限')); });
-  req.on('end', () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('JSON 格式错误')); } });
+  let raw = '', tooLarge = false; const maxBodyBytes = Math.max(64_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048, (Number(state.settings.goStudyMaxKB) || 512) * 1024 + 2048);
+  req.on('data', chunk => {
+    if (tooLarge) return;
+    raw += chunk;
+    if (Buffer.byteLength(raw) > maxBodyBytes) { tooLarge = true; raw = ''; reject(new Error('请求超过后台设置的存储上限')); }
+  });
+  req.on('end', () => { if (tooLarge) return; try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('JSON 格式错误')); } });
 });
 const requireUser = (req, res, role) => {
   const user = currentUser(req);
@@ -220,9 +256,91 @@ const readDriveUpload = (req, user, scope) => new Promise((resolve, reject) => {
   parser.on('error', reject); parser.on('finish', async () => { try { await writePromise; if (failure) { if (result) removeDriveFile(result); return reject(failure); } if (!result) return reject(new Error('没有收到文件')); resolve(result); } catch (error) { reject(error); } }); req.pipe(parser);
 });
 
+const parseList = (value, fallback = []) => Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[\n,，]/).map(item => item.trim()).filter(Boolean) : fallback;
+const safeNumberSetting = (value, min, max, label) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) throw new GoRuleError(`${label}必须在 ${min}–${max} 之间`, 'INVALID_SETTINGS');
+  return number;
+};
+function sanitizeGoSettings(data) {
+  const current = state.settings, boardSizes = [...new Set(parseList(data.goAllowedBoardSizes, current.goAllowedBoardSizes).map(Number).filter(value => [9, 13, 19].includes(value)))];
+  if (!boardSizes.length) throw new GoRuleError('至少开放一个标准棋盘大小', 'INVALID_SETTINGS');
+  const rules = [...new Set(parseList(data.goAllowedRules, current.goAllowedRules).filter(value => ['chinese', 'japanese'].includes(value)))];
+  if (!rules.length) throw new GoRuleError('至少开放一种围棋规则', 'INVALID_SETTINGS');
+  const koRules = [...new Set(parseList(data.goAllowedKoRules, current.goAllowedKoRules).filter(value => ['positional-superko', 'simple-ko'].includes(value)))];
+  if (!koRules.length) throw new GoRuleError('至少开放一种劫规则', 'INVALID_SETTINGS');
+  const timeSystems = [...new Set(parseList(data.goAllowedTimeSystems, current.goAllowedTimeSystems).filter(value => ['none', 'absolute', 'byoyomi'].includes(value)))];
+  if (!timeSystems.length) throw new GoRuleError('至少开放一种计时方式', 'INVALID_SETTINGS');
+  let profiles = data.goAiProfiles ?? current.goAiProfiles;
+  if (typeof profiles === 'string') { try { profiles = JSON.parse(profiles); } catch { throw new GoRuleError('机器人难度 JSON 格式错误', 'INVALID_SETTINGS'); } }
+  if (!Array.isArray(profiles) || !profiles.length || profiles.length > 12) throw new GoRuleError('机器人难度需要包含 1–12 个档位', 'INVALID_SETTINGS');
+  profiles = profiles.map((item, index) => ({
+    id: String(item.id || `profile-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30),
+    name: String(item.name || `难度 ${index + 1}`).trim().slice(0, 30), description: String(item.description || '').slice(0, 120),
+    maxVisits: Math.round(safeNumberSetting(item.maxVisits, 1, 100000, '搜索访问次数')),
+    maxTime: safeNumberSetting(item.maxTime, 0.05, 120, '单步思考时间')
+  }));
+  if (profiles.some(item => !item.id) || new Set(profiles.map(item => item.id)).size !== profiles.length) throw new GoRuleError('机器人难度 id 必须非空且不能重复', 'INVALID_SETTINGS');
+  const absolutePath = (value, fallback, label) => { const result = String(value ?? fallback).trim(); if (!path.isAbsolute(result) || result.includes('\0')) throw new GoRuleError(`${label}必须是绝对路径`, 'INVALID_SETTINGS'); return result.slice(0, 500); };
+  const boardSkins = [...new Set(parseList(data.goBoardSkins, current.goBoardSkins).filter(value => ['walnut', 'bamboo', 'midnight'].includes(value)))];
+  const stoneSkins = [...new Set(parseList(data.goStoneSkins, current.goStoneSkins).filter(value => ['classic', 'slate', 'flat'].includes(value)))];
+  const defaultMainMinutes = Math.round(safeNumberSetting(data.goDefaultMainMinutes ?? current.goDefaultMainMinutes, 1, 1440, '默认基本时间'));
+  const maxMainMinutes = Math.round(safeNumberSetting(data.goMaxMainMinutes ?? current.goMaxMainMinutes, 1, 1440, '最大基本时间'));
+  if (defaultMainMinutes > maxMainMinutes) throw new GoRuleError('默认基本时间不能超过最大基本时间', 'INVALID_SETTINGS');
+  return {
+    goEnabled: data.goEnabled === undefined ? current.goEnabled !== false : Boolean(data.goEnabled),
+    goAllowedBoardSizes: boardSizes,
+    goDefaultBoardSize: boardSizes.includes(Number(data.goDefaultBoardSize)) ? Number(data.goDefaultBoardSize) : boardSizes[0],
+    goAllowedRules: rules,
+    goDefaultRules: rules.includes(data.goDefaultRules) ? data.goDefaultRules : rules[0],
+    goAllowedKoRules: koRules,
+    goDefaultKoRule: koRules.includes(data.goDefaultKoRule) ? data.goDefaultKoRule : koRules[0],
+    goDefaultKomi: safeNumberSetting(data.goDefaultKomi ?? current.goDefaultKomi, -50, 50, '默认贴目'),
+    goHandicapKomi: safeNumberSetting(data.goHandicapKomi ?? current.goHandicapKomi, -50, 50, '让子局贴目'),
+    goMaxHandicap: Math.round(safeNumberSetting(data.goMaxHandicap ?? current.goMaxHandicap, 0, 9, '最大让子数')),
+    goAllowedTimeSystems: timeSystems,
+    goDefaultMainMinutes: defaultMainMinutes,
+    goMaxMainMinutes: maxMainMinutes,
+    goDefaultByoYomiSeconds: Math.round(safeNumberSetting(data.goDefaultByoYomiSeconds ?? current.goDefaultByoYomiSeconds, 5, 300, '默认读秒')),
+    goDefaultByoYomiPeriods: Math.round(safeNumberSetting(data.goDefaultByoYomiPeriods ?? current.goDefaultByoYomiPeriods, 1, 10, '默认读秒次数')),
+    goUndoDefault: data.goUndoDefault === 'none' ? 'none' : 'request',
+    goMaxUndoRequests: Math.round(safeNumberSetting(data.goMaxUndoRequests ?? current.goMaxUndoRequests, 0, 20, '悔棋次数')),
+    goInviteExpiryMinutes: Math.round(safeNumberSetting(data.goInviteExpiryMinutes ?? current.goInviteExpiryMinutes, 1, 1440, '邀请有效期')),
+    goMaxPendingInvites: Math.round(safeNumberSetting(data.goMaxPendingInvites ?? current.goMaxPendingInvites, 1, 50, '待处理邀请数')),
+    goDisconnectPolicy: ['continue', 'forfeit', 'void'].includes(data.goDisconnectPolicy) ? data.goDisconnectPolicy : current.goDisconnectPolicy,
+    goDisconnectGraceSeconds: Math.round(safeNumberSetting(data.goDisconnectGraceSeconds ?? current.goDisconnectGraceSeconds, 10, 3600, '断线宽限时间')),
+    goRecordDefaultVisibility: ['private', 'participants', 'public'].includes(data.goRecordDefaultVisibility) ? data.goRecordDefaultVisibility : current.goRecordDefaultVisibility,
+    goSharedMaxParticipants: 2,
+    goStudyMaxCount: Math.round(safeNumberSetting(data.goStudyMaxCount ?? current.goStudyMaxCount, 1, 500, '研究棋谱数量')),
+    goStudyMaxKB: Math.round(safeNumberSetting(data.goStudyMaxKB ?? current.goStudyMaxKB, 32, 4096, '研究棋谱大小')),
+    goAiEnabled: data.goAiEnabled === undefined ? current.goAiEnabled !== false : Boolean(data.goAiEnabled),
+    goAiMaxConcurrent: 1,
+    goAiMoveTimeoutSeconds: Math.round(safeNumberSetting(data.goAiMoveTimeoutSeconds ?? current.goAiMoveTimeoutSeconds, 5, 120, '引擎超时')),
+    goKataGoBinary: absolutePath(data.goKataGoBinary, current.goKataGoBinary, 'KataGo 程序路径'),
+    goKataGoModel: absolutePath(data.goKataGoModel, current.goKataGoModel, 'KataGo 模型路径'),
+    goKataGoConfig: absolutePath(data.goKataGoConfig, current.goKataGoConfig, 'KataGo 配置路径'),
+    goAiProfiles: profiles,
+    goBoardSkins: boardSkins.length ? boardSkins : ['walnut'], goStoneSkins: stoneSkins.length ? stoneSkins : ['classic'],
+    goDefaultBoardSkin: boardSkins.includes(data.goDefaultBoardSkin) ? data.goDefaultBoardSkin : (boardSkins[0] || 'walnut'),
+    goDefaultStoneSkin: stoneSkins.includes(data.goDefaultStoneSkin) ? data.goDefaultStoneSkin : (stoneSkins[0] || 'classic')
+  };
+}
+
+function feedbackView(item) {
+  const owner = item.userId ? state.users.find(user => user.id === item.userId) : null;
+  return { ...item, displayName: owner?.displayName || item.displayName || '匿名用户', username: owner?.username || null };
+}
+
+function pruneFeedback() {
+  const cutoff = Date.now() - Math.max(7, Number(state.settings.feedbackRetentionDays || 365)) * 86_400_000;
+  const before = state.feedbackItems.length;
+  state.feedbackItems = state.feedbackItems.filter(item => new Date(item.createdAt).getTime() >= cutoff);
+  return state.feedbackItems.length !== before;
+}
+
 async function api(req, res, url) {
   if (url.pathname === '/api/login' && req.method === 'POST') {
-    const ip = req.socket.remoteAddress;
+    const ip = clientAddress(req);
     const recent = (loginAttempts.get(ip) || []).filter(t => Date.now() - t < 10 * 60_000);
     if (recent.length >= 10) return json(res, 429, { error: '尝试次数过多，请稍后再试' });
     const data = await body(req);
@@ -243,12 +361,136 @@ async function api(req, res, url) {
     const session = state.sessions.find(item => item.token === token);
     state.sessions = state.sessions.filter(s => s.token !== token); save(state);
     if (session) closeNotebookSockets(session.userId, token);
+    if (session) goWss.clients.forEach(client => { if (client.sessionToken === token) client.close(4000, 'logout'); });
     res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
     return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/me' && req.method === 'GET') {
     const user = currentUser(req); return json(res, 200, { user: user ? publicUser(user) : null });
   }
+  if (url.pathname === '/api/feedback/config' && req.method === 'GET') {
+    return json(res, 200, { enabled: state.settings.feedbackEnabled !== false, anonymousEnabled: state.settings.feedbackAnonymousEnabled !== false });
+  }
+  if (url.pathname === '/api/feedback' && req.method === 'POST') {
+    if (state.settings.feedbackEnabled === false) return json(res, 403, { error: '问题反馈暂时关闭' });
+    const user = currentUser(req);
+    if (!user && state.settings.feedbackAnonymousEnabled === false) return json(res, 401, { error: '请登录后提交反馈' });
+    const attemptKey = user ? `user:${user.id}` : `ip:${clientAddress(req)}`, recent = (feedbackAttempts.get(attemptKey) || []).filter(value => Date.now() - value < 3600_000);
+    if (recent.length >= Number(state.settings.feedbackMaxPerHour || 5)) return json(res, 429, { error: '提交过于频繁，请稍后再试' });
+    const data = await body(req), title = String(data.title || '').trim(), description = String(data.description || '').trim();
+    if (title.length < 2 || description.length < 5) return json(res, 400, { error: '请填写简短标题和较完整的问题描述' });
+    const category = ['bug', 'suggestion', 'account', 'content', 'performance', 'other'].includes(data.category) ? data.category : 'other';
+    const item = {
+      id: crypto.randomUUID(), userId: user?.id || null, displayName: user?.displayName || '匿名用户', category,
+      title: title.slice(0, 120), description: description.slice(0, 5000), contact: String(data.contact || '').trim().slice(0, 200),
+      pagePath: String(data.pagePath || '/').slice(0, 500), userAgent: String(data.userAgent || req.headers['user-agent'] || '').slice(0, 500),
+      status: 'new', priority: 'normal', adminNote: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    };
+    state.feedbackItems.push(item); state.feedbackItems = state.feedbackItems.slice(-20_000); recent.push(Date.now()); feedbackAttempts.set(attemptKey, recent); save(state);
+    return json(res, 201, { feedback: feedbackView(item) });
+  }
+  if (url.pathname === '/api/admin/feedback/settings' && req.method === 'PATCH') {
+    if (!requireUser(req, res, 'admin')) return;
+    const data = await body(req), maxPerHour = Number(data.feedbackMaxPerHour), retentionDays = Number(data.feedbackRetentionDays);
+    if (!Number.isSafeInteger(maxPerHour) || maxPerHour < 1 || maxPerHour > 100) return json(res, 400, { error: '每小时反馈上限必须是 1–100 之间的整数' });
+    if (!Number.isSafeInteger(retentionDays) || retentionDays < 7 || retentionDays > 3650) return json(res, 400, { error: '反馈保留天数必须是 7–3650 之间的整数' });
+    Object.assign(state.settings, { feedbackEnabled: Boolean(data.feedbackEnabled), feedbackAnonymousEnabled: Boolean(data.feedbackAnonymousEnabled), feedbackMaxPerHour: maxPerHour, feedbackRetentionDays: retentionDays });
+    pruneFeedback(); save(state); return json(res, 200, { settings: state.settings });
+  }
+  if (url.pathname === '/api/admin/feedback' && req.method === 'GET') {
+    if (!requireUser(req, res, 'admin')) return;
+    if (pruneFeedback()) save(state);
+    const page = Math.max(1, Number(url.searchParams.get('page')) || 1), pageSize = 20, status = String(url.searchParams.get('status') || 'all'), query = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    const filtered = state.feedbackItems.filter(item => (status === 'all' || item.status === status) && (!query || `${item.title} ${item.description} ${item.contact} ${item.pagePath}`.toLowerCase().includes(query))).reverse();
+    return json(res, 200, { feedback: filtered.slice((page - 1) * pageSize, page * pageSize).map(feedbackView), page, pages: Math.max(1, Math.ceil(filtered.length / pageSize)), total: filtered.length, counts: Object.fromEntries(['new', 'reviewing', 'resolved', 'closed'].map(key => [key, state.feedbackItems.filter(item => item.status === key).length])), settings: { feedbackEnabled: state.settings.feedbackEnabled, feedbackAnonymousEnabled: state.settings.feedbackAnonymousEnabled, feedbackMaxPerHour: state.settings.feedbackMaxPerHour, feedbackRetentionDays: state.settings.feedbackRetentionDays } });
+  }
+  const feedbackMatch = url.pathname.match(/^\/api\/admin\/feedback\/([^/]+)$/);
+  if (feedbackMatch && req.method === 'PATCH') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return; const item = state.feedbackItems.find(entry => entry.id === feedbackMatch[1]); if (!item) return json(res, 404, { error: '反馈不存在' });
+    const data = await body(req); if (['new', 'reviewing', 'resolved', 'closed'].includes(data.status)) item.status = data.status; if (['low', 'normal', 'high', 'urgent'].includes(data.priority)) item.priority = data.priority;
+    if (data.adminNote !== undefined) item.adminNote = String(data.adminNote || '').slice(0, 5000); item.updatedAt = new Date().toISOString(); item.updatedBy = admin.id; save(state); return json(res, 200, { feedback: feedbackView(item) });
+  }
+  if (feedbackMatch && req.method === 'DELETE') {
+    if (!requireUser(req, res, 'admin')) return; const index = state.feedbackItems.findIndex(entry => entry.id === feedbackMatch[1]); if (index < 0) return json(res, 404, { error: '反馈不存在' }); state.feedbackItems.splice(index, 1); save(state); return json(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/api/go/lobby' && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return; if (state.settings.goEnabled === false) return json(res, 503, { error: '围棋功能正在维护' });
+    return json(res, 200, goService.lobby(user));
+  }
+  if (url.pathname === '/api/go/user-settings' && req.method === 'PATCH') {
+    const user = requireUser(req, res); if (!user) return; return json(res, 200, { settings: goService.updateUserSettings(user, await body(req)) });
+  }
+  if (url.pathname === '/api/go/invitations' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; return json(res, 201, { invitation: goService.createInvitation(user, await body(req)) });
+  }
+  const goInvitationMatch = url.pathname.match(/^\/api\/go\/invitations\/([^/]+)\/respond$/);
+  if (goInvitationMatch && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; const data = await body(req); return json(res, 200, goService.respondInvitation(user, goInvitationMatch[1], String(data.action || '')));
+  }
+  if (url.pathname === '/api/go/ai-games' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; const game = goService.createAiGame(user, await body(req));
+    if (goService.position(game).toPlay === (game.blackPlayer?.type === 'engine' ? 'B' : 'W')) await goService.engineTurn(game);
+    return json(res, 201, { game: goService.gameView(game, user) });
+  }
+  if (url.pathname === '/api/go/records' && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return; return json(res, 200, { records: goService.listRecords(user) });
+  }
+  const goSgfMatch = url.pathname.match(/^\/api\/go\/games\/([^/]+)\/sgf$/);
+  if (goSgfMatch && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return; const sgf = goService.exportSgf(user, goSgfMatch[1]);
+    res.writeHead(200, { 'Content-Type': 'application/x-go-sgf; charset=utf-8', 'Content-Disposition': `attachment; filename="polynomial-go-${goSgfMatch[1].slice(0, 12)}.sgf"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }); return res.end(sgf);
+  }
+  const goGameActionMatch = url.pathname.match(/^\/api\/go\/games\/([^/]+)\/actions$/);
+  if (goGameActionMatch && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; const data = await body(req), id = goGameActionMatch[1]; let game;
+    if (data.type === 'move') ({ game } = goService.move(user, id, data));
+    else if (data.type === 'pass') ({ game } = goService.pass(user, id));
+    else if (data.type === 'resign') game = goService.resign(user, id);
+    else if (data.type === 'undo-request') game = goService.requestUndo(user, id);
+    else if (data.type === 'undo-response') game = goService.respondUndo(user, id, Boolean(data.accept));
+    else if (data.type === 'scoring-update') game = goService.updateScoring(user, id, data.dead);
+    else if (data.type === 'scoring-confirm') game = goService.confirmScoring(user, id);
+    else if (data.type === 'scoring-accept-opponent') game = goService.acceptOpponentScore(user, id);
+    else if (data.type === 'scoring-resume') game = goService.resumeFromScoring(user, id);
+    else if (data.type === 'retry-ai') game = goService.retryEngine(user, id);
+    else if (['setup', 'erase', 'undo', 'redo', 'clear', 'lock'].includes(data.type)) game = goService.sharedAction(user, id, data);
+    else return json(res, 400, { error: '未知围棋操作' });
+    if (game.mode === 'ai' && game.status === 'active') {
+      const engineColor = game.blackPlayer?.type === 'engine' ? 'B' : 'W';
+      if (goService.position(game).toPlay === engineColor) await goService.engineTurn(game);
+    }
+    return json(res, 200, { game: goService.gameView(game, user) });
+  }
+  const goGameMatch = url.pathname.match(/^\/api\/go\/games\/([^/]+)$/);
+  if (goGameMatch && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return; const game = goService.gameFor(goGameMatch[1], user); return json(res, 200, { game: goService.gameView(game, user) });
+  }
+  if (url.pathname === '/api/go/studies' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; return json(res, 201, { study: goService.saveStudy(user, await body(req)) });
+  }
+  if (url.pathname === '/api/go/studies/import' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return; if (!allowed(user, 'goSgfImport')) return json(res, 403, { error: '此账号不能导入 SGF' }); const data = await body(req); return json(res, 201, { study: goService.importStudy(user, data.sgf) });
+  }
+  const goStudyMatch = url.pathname.match(/^\/api\/go\/studies\/([^/]+)$/);
+  if (goStudyMatch && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; return json(res, 200, { study: goService.getStudy(user, goStudyMatch[1]) }); }
+  if (goStudyMatch && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; return json(res, 200, { study: goService.saveStudy(user, await body(req), goStudyMatch[1]) }); }
+  if (goStudyMatch && req.method === 'DELETE') { const user = requireUser(req, res); if (!user) return; goService.deleteStudy(user, goStudyMatch[1]); return json(res, 200, { ok: true }); }
+  if (url.pathname === '/api/go/puzzles' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; return json(res, 200, { puzzles: goService.listPuzzles(user) }); }
+  const goPuzzleAttemptMatch = url.pathname.match(/^\/api\/go\/puzzles\/([^/]+)\/attempt$/);
+  if (goPuzzleAttemptMatch && req.method === 'POST') { const user = requireUser(req, res); if (!user) return; const data = await body(req); return json(res, 200, goService.attemptPuzzle(user, goPuzzleAttemptMatch[1], data.sequence)); }
+  if (url.pathname === '/api/admin/go' && req.method === 'GET') { const admin = requireUser(req, res, 'admin'); if (!admin) return; return json(res, 200, goService.adminOverview(admin)); }
+  if (url.pathname === '/api/admin/go/settings' && req.method === 'PATCH') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return; const previous = { ...state.settings }, settings = sanitizeGoSettings(await body(req));
+    state.settings = { ...state.settings, ...settings }; const changedKeys = Object.keys(settings).filter(key => JSON.stringify(previous[key]) !== JSON.stringify(settings[key]));
+    state.goConfigHistory.push({ id: crypto.randomUUID(), adminId: admin.id, changedKeys, at: new Date().toISOString() }); state.goConfigHistory = state.goConfigHistory.slice(-1000); save(state);
+    if (changedKeys.some(key => ['goKataGoBinary', 'goKataGoModel', 'goKataGoConfig', 'goAiEnabled'].includes(key))) await kataGo.stop();
+    return json(res, 200, { settings: state.settings, engine: kataGo.status() });
+  }
+  if (url.pathname === '/api/admin/go/puzzles' && req.method === 'POST') { const admin = requireUser(req, res, 'admin'); if (!admin) return; return json(res, 201, { puzzle: goService.savePuzzle(admin, await body(req)) }); }
+  const adminGoPuzzleMatch = url.pathname.match(/^\/api\/admin\/go\/puzzles\/([^/]+)$/);
+  if (adminGoPuzzleMatch && req.method === 'PATCH') { const admin = requireUser(req, res, 'admin'); if (!admin) return; return json(res, 200, { puzzle: goService.savePuzzle(admin, await body(req), adminGoPuzzleMatch[1]) }); }
+  if (adminGoPuzzleMatch && req.method === 'DELETE') { const admin = requireUser(req, res, 'admin'); if (!admin) return; goService.deletePuzzle(admin, adminGoPuzzleMatch[1]); return json(res, 200, { ok: true }); }
   if (url.pathname === '/api/messages' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
@@ -539,9 +781,9 @@ async function api(req, res, url) {
     for (const [key, [min, max, label]] of Object.entries(ranges)) {
       if (!Number.isSafeInteger(settings[key]) || settings[key] < min || settings[key] > max) return json(res, 400, { error: `${label}必须是 ${min}–${max} 之间的整数` });
     }
-    state.settings = settings;
+    state.settings = { ...state.settings, ...settings };
     save(state);
-    return json(res, 200, { settings });
+    return json(res, 200, { settings: state.settings });
   }
   if (url.pathname === '/api/users' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return; return json(res, 200, { users: state.users.map(publicUser) });
@@ -559,7 +801,7 @@ async function api(req, res, url) {
   if (match && req.method === 'PATCH') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
     const target = state.users.find(u => u.id === match[1]); if (!target) return json(res, 404, { error: '用户不存在' });
-    const data = await body(req);
+    const data = await body(req), previouslyHadGo = allowed(target, 'accessGames') && allowed(target, 'accessGo');
     const username = data.username === undefined ? target.username : String(data.username).trim(); const displayName = data.displayName === undefined ? target.displayName : String(data.displayName).trim().slice(0, 30);
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
     if (!displayName) return json(res, 400, { error: '显示名称不能为空' });
@@ -572,16 +814,17 @@ async function api(req, res, url) {
     if (data.role === 'admin' || data.role === 'member') target.role = data.role;
     if (data.permissions && typeof data.permissions === 'object') target.permissions = { ...defaultPermissions, ...target.permissions, ...Object.fromEntries(Object.keys(defaultPermissions).map(key => [key, Boolean(data.permissions[key])])) };
     if (data.driveQuotaMB !== undefined) { const quota = Number(data.driveQuotaMB); if (!Number.isSafeInteger(quota) || quota < 0) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' }); target.driveQuotaMB = quota; }
-    if (data.password) { if (String(data.password).length < 10) return json(res, 400, { error: '密码至少 10 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
-    if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
+    if (data.password) { if (String(data.password).length < 10) return json(res, 400, { error: '密码至少 10 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
+    if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
     if (!target.active || !allowed(target, 'accessNotebook')) { closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); }
+    if (previouslyHadGo && (!target.active || !allowed(target, 'accessGames') || !allowed(target, 'accessGo'))) { goService.markPresence(target.id, false); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'go access disabled'); }); }
     save(state); return json(res, 200, { user: publicUser(target) });
   }
   if (match && req.method === 'DELETE') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return; const index = state.users.findIndex(user => user.id === match[1]); if (index < 0) return json(res, 404, { error: '用户不存在' }); const target = state.users[index];
     if (target.id === admin.id) return json(res, 400, { error: '不能删除当前登录的管理员账号' });
     if (target.role === 'admin' && target.active && state.users.filter(user => user.role === 'admin' && user.active).length <= 1) return json(res, 400, { error: '必须保留至少一个启用的管理员' });
-    state.users.splice(index, 1); state.sessions = state.sessions.filter(session => session.userId !== target.id); state.conversations.forEach(item => { item.memberIds = item.memberIds.filter(id => id !== target.id); if (item.createdBy === target.id) item.createdBy = null; }); state.conversations = state.conversations.filter(item => item.memberIds.length >= 2); save(state); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4001, 'account deleted'); }); closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); broadcast({ type: 'conversation-created' }); return json(res, 200, { ok: true });
+    goService.markPresence(target.id, false); state.users.splice(index, 1); state.sessions = state.sessions.filter(session => session.userId !== target.id); state.conversations.forEach(item => { item.memberIds = item.memberIds.filter(id => id !== target.id); if (item.createdBy === target.id) item.createdBy = null; }); state.conversations = state.conversations.filter(item => item.memberIds.length >= 2); save(state); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4001, 'account deleted'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4001, 'account deleted'); }); closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); broadcast({ type: 'conversation-created' }); return json(res, 200, { ok: true });
   }
   return json(res, 404, { error: '接口不存在' });
 }
@@ -614,7 +857,7 @@ function staticFile(req, res, url) {
     if (!err && stat.isDirectory()) file = path.join(target, 'index.html');
     fs.readFile(file, (readErr, data) => {
       if (readErr) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
-      res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin' }); res.end(data);
+      res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin' }); res.end(data);
     });
   });
 }
@@ -622,7 +865,11 @@ function staticFile(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try { if (url.pathname.startsWith('/api/')) await api(req, res, url); else if (url.pathname.startsWith('/python/session/')) await proxyNotebookHttp(req, res); else staticFile(req, res, url); }
-  catch (error) { console.error(error); if (!res.headersSent) json(res, 400, { error: error.message || '请求失败' }); }
+  catch (error) {
+    console.error(error);
+    const status = error?.code === 'FORBIDDEN' ? 403 : error?.code === 'NOT_FOUND' ? 404 : ['ENGINE_UNAVAILABLE', 'GO_DISABLED'].includes(error?.code) ? 503 : error?.code === 'INVITE_LIMIT' ? 429 : 400;
+    if (!res.headersSent) json(res, status, { error: error.message || '请求失败', code: error.code || 'REQUEST_FAILED' });
+  }
 });
 
 const wss = new WebSocketServer({ noServer: true });
@@ -634,6 +881,10 @@ server.on('upgrade', async (req, socket, head) => {
   try {
     const pathname = new URL(req.url, 'http://localhost').pathname;
     const user = currentUser(req);
+    if (pathname === '/go-socket') {
+      if (!user || state.settings.goEnabled === false || !allowed(user, 'accessGames') || !allowed(user, 'accessGo')) return socket.destroy();
+      return goWss.handleUpgrade(req, socket, head, ws => goWss.emit('connection', ws, req));
+    }
     if (pathname === '/chat-socket') {
       if (!user || !allowed(user, 'accessChat')) return socket.destroy();
       return wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
@@ -654,6 +905,16 @@ server.on('upgrade', async (req, socket, head) => {
     console.error('WebSocket upgrade error:', error.message);
     socket.destroy();
   }
+});
+goWss.on('connection', (ws, req) => {
+  const user = currentUser(req); if (!user) return ws.close(4001, 'unauthorized');
+  ws.user = user; ws.sessionToken = cookies(req).session; goService.markPresence(user.id, true);
+  ws.send(JSON.stringify({ type: 'go-ready', user: publicUser(user) }));
+  ws.on('message', raw => { try { const data = JSON.parse(raw); if (data.type === 'ping') ws.send(JSON.stringify({ type: 'pong', at: Date.now() })); } catch {} });
+  ws.on('close', () => {
+    const stillConnected = [...goWss.clients].some(client => client !== ws && client.readyState === 1 && client.user?.id === user.id);
+    if (!stillConnected) goService.markPresence(user.id, false);
+  });
 });
 wss.on('connection', (ws, req) => {
   const user = currentUser(req); ws.user = user; ws.send(JSON.stringify({ type: 'ready', user: publicUser(user) }));
@@ -701,6 +962,8 @@ async function cleanupIdleNotebooks() {
   }
 }
 setInterval(cleanupIdleNotebooks, 60_000).unref();
+setInterval(() => { try { goService.maintenance(); } catch (error) { console.error('Go maintenance error:', error.message); } }, 5_000).unref();
+setInterval(() => { if (pruneFeedback()) save(state); }, 3_600_000).unref();
 
 server.listen(PORT, HOST, () => {
   console.log(`Polynomial Server: http://${HOST}:${PORT}`);
@@ -710,3 +973,15 @@ server.listen(PORT, HOST, () => {
     catch (error) { console.error('Notebook status bootstrap error:', error.message); }
   })).catch(error => console.error(error));
 });
+
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`收到 ${signal}，正在安全关闭服务…`);
+  server.close();
+  try { await kataGo.stop(); } catch (error) { console.error('KataGo shutdown error:', error.message); }
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

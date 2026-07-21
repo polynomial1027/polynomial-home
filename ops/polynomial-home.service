@@ -1,0 +1,23 @@
+[Unit]
+Description=Polynomial Server 0.2.0
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=polynomial1027
+Group=polynomial1027
+WorkingDirectory=/var/www/polynomial-home
+EnvironmentFile=/etc/polynomial-server.env
+ExecStart=/usr/bin/node /var/www/polynomial-home/server.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=35s
+KillSignal=SIGTERM
+UMask=0027
+PrivateTmp=true
+ProtectHome=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

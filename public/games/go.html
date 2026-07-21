@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>围棋中心 · Polynomial Server</title>
+  <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/enhancements.css">
+  <link rel="stylesheet" href="/assets/games/go.css">
+</head>
+<body class="go-page">
+  <header class="game-nav go-topbar">
+    <nav class="game-links"><a href="/">首页</a><span>／</span><a href="/games.html">小游戏</a><span>／</span><strong>围棋中心</strong></nav>
+    <strong class="go-brand">POLYNOMIAL <span>GO</span></strong>
+    <div class="go-top-actions"><span class="connection-dot" id="goConnection">连接中</span><span class="player-chip" id="goPlayer">读取账号…</span></div>
+  </header>
+
+  <main class="go-home" id="goHome">
+    <section class="go-hero">
+      <div><div class="eyebrow">Game 02 · Go</div><h1>围棋<br><span>研究与对弈</span></h1><p>研究变化、完成题目、挑战 KataGo，或邀请服务器中的用户进行联机对局与共享研究。</p></div>
+      <div class="go-engine-card"><span id="engineLight"></span><div><small>KataGo 引擎</small><strong id="engineStatus">检查中…</strong><p id="engineDescription">人机模式会在引擎就绪后开放。</p></div></div>
+    </section>
+
+    <section class="mode-section">
+      <div class="section-title"><div><span>01</span><h2>单人模式</h2></div><p>独立研究、题库训练与人机对局</p></div>
+      <div class="go-mode-grid">
+        <button class="mode-card" data-start-mode="study"><span class="mode-icon">⌁</span><small>自由研究</small><h3>自定义棋盘</h3><p>自动轮流或自由摆棋，保存变化与评论，支持 SGF 导入。</p><b>开始研究 →</b></button>
+        <button class="mode-card" data-start-mode="puzzle"><span class="mode-icon">◇</span><small>管理员题库</small><h3>题库练习</h3><p>完成管理员发布的死活、吃子和最佳落点题目。</p><b>选择题目 →</b></button>
+        <button class="mode-card" data-start-mode="ai"><span class="mode-icon">◉</span><small>Local KataGo</small><h3>人机对弈</h3><p>选择颜色、让子、计时和机器人难度，自动保存完整棋谱。</p><b>创建对局 →</b></button>
+      </div>
+    </section>
+
+    <section class="mode-section">
+      <div class="section-title"><div><span>02</span><h2>多人模式</h2></div><p>向已开放围棋权限的用户发送邀请</p></div>
+      <div class="go-mode-grid multiplayer-grid">
+        <button class="mode-card" data-start-mode="online"><span class="mode-icon">⚔</span><small>正式棋局</small><h3>联机对战</h3><p>服务器校验落子、统一计时和记录，终局由双方确认数目。</p><b>邀请对手 →</b></button>
+        <button class="mode-card" data-start-mode="shared"><span class="mode-icon">⌘</span><small>协作研究</small><h3>共享棋盘</h3><p>双方自由摆放黑白棋、擦除、撤销和重做，不受轮次限制。</p><b>邀请协作者 →</b></button>
+      </div>
+    </section>
+
+    <section class="go-dashboard-grid">
+      <article class="go-panel"><div class="panel-heading"><div><small>Invitations</small><h2>对局邀请</h2></div><button class="mini-button" id="refreshLobby">刷新</button></div><div id="invitationList" class="go-list"></div></article>
+      <article class="go-panel"><div class="panel-heading"><div><small>Active rooms</small><h2>进行中的棋局</h2></div></div><div id="activeGameList" class="go-list"></div></article>
+      <article class="go-panel"><div class="panel-heading"><div><small>Studies</small><h2>我的研究</h2></div><div><button class="mini-button" id="importSgf">导入 SGF</button></div></div><input id="sgfFile" type="file" accept=".sgf,application/x-go-sgf" hidden><div id="studyList" class="go-list"></div></article>
+      <article class="go-panel"><div class="panel-heading"><div><small>Records</small><h2>最近棋谱</h2></div></div><div id="recordList" class="go-list"></div></article>
+    </section>
+
+    <section class="go-panel go-preferences"><div class="panel-heading"><div><small>Appearance</small><h2>棋盘偏好</h2></div></div><form id="goPreferences"><label>棋盘<select id="prefBoardSkin"></select></label><label>棋子<select id="prefStoneSkin"></select></label><label class="check-label"><input id="prefCoordinates" type="checkbox">显示坐标</label><label class="check-label"><input id="prefMoveNumbers" type="checkbox">显示手数</label><label class="check-label"><input id="prefSound" type="checkbox">落子音效</label><label class="check-label"><input id="prefInvitable" type="checkbox">接受邀请</label><button class="button">保存偏好</button></form></section>
+  </main>
+
+  <main class="go-room hidden" id="goRoom">
+    <div class="room-toolbar"><button class="mini-button" id="leaveRoom">← 返回围棋中心</button><div><strong id="roomTitle">围棋</strong><span id="roomSubtitle">准备棋盘</span></div><div class="room-toolbar-actions"><button class="mini-button hidden" id="saveStudy">保存研究</button><a class="mini-button hidden" id="downloadSgf">导出 SGF</a></div></div>
+    <div class="room-layout">
+      <section class="board-column">
+        <div class="player-strip" id="whitePlayer"><span class="stone-sample white"></span><div><small>白方</small><strong>—</strong></div><time>—</time></div>
+        <div class="go-board-shell" id="boardShell"><svg id="goBoard" role="grid" aria-label="围棋棋盘"></svg><div class="board-busy hidden" id="boardBusy"><span></span><strong>等待服务器…</strong></div></div>
+        <div class="player-strip" id="blackPlayer"><span class="stone-sample black"></span><div><small>黑方</small><strong>—</strong></div><time>—</time></div>
+        <div class="board-message" id="boardMessage">请选择模式开始。</div>
+      </section>
+      <aside class="room-sidebar">
+        <section class="room-card"><div class="room-status"><span id="modeBadge">研究</span><strong id="turnStatus">黑先</strong></div><div class="score-line"><span>黑提子 <b id="blackCaptures">0</b></span><span>白提子 <b id="whiteCaptures">0</b></span><span>手数 <b id="moveCount">0</b></span></div></section>
+
+        <section class="room-card tool-card" id="studyTools">
+          <h3>研究工具</h3><div class="segmented"><button class="active" data-study-method="play">规则落子</button><button data-study-method="setup">自由摆棋</button></div>
+          <div class="tool-row"><button data-tool-color="auto" class="active">自动轮流</button><button data-tool-color="B">黑棋</button><button data-tool-color="W">白棋</button><button data-tool-color="erase">擦除</button></div>
+          <div class="tool-row"><button id="studyUndo">撤销</button><button id="studyRedo">重做</button><button id="studyPass">停一手</button><button id="studyClear">清空</button></div>
+          <label class="field"><span>研究标题</span><input id="studyTitle" maxlength="80" value="未命名研究"></label><label class="field"><span>局面评论</span><textarea id="studyComment" rows="3" maxlength="20000"></textarea></label>
+        </section>
+
+        <section class="room-card tool-card hidden" id="gameTools"><h3>对局操作</h3><div class="tool-row"><button id="passMove">停一手</button><button id="requestUndo">申请悔棋</button><button id="retryAi" class="hidden">重试机器人</button><button id="resignGame" class="danger-tool">认输</button></div><div class="undo-request hidden" id="undoRequest"><p>对方申请悔棋</p><button id="acceptUndo">同意</button><button id="declineUndo">拒绝</button></div></section>
+
+        <section class="room-card tool-card hidden" id="sharedTools"><h3>共享棋盘</h3><div class="tool-row"><button data-shared-color="B" class="active">黑棋</button><button data-shared-color="W">白棋</button><button data-shared-color="erase">擦除</button></div><div class="tool-row"><button id="sharedUndo">撤销</button><button id="sharedRedo">重做</button><button id="sharedClear">清空</button><button id="sharedLock">锁定</button></div></section>
+
+        <section class="room-card scoring-card hidden" id="scoringTools"><h3>双方数目确认</h3><p>点击棋块标记你认为的死子。双方方案一致后系统自动计算；不一致时可继续调整、接受对方方案或恢复对局。</p><div class="tool-row"><button id="confirmScore">确认我的方案</button><button id="acceptOpponentScore">接受对方方案</button><button id="resumeGame">恢复对局</button></div><div id="scorePreview"></div></section>
+
+        <section class="room-card puzzle-card hidden" id="puzzleTools"><h3 id="puzzleTitle">题目</h3><p id="puzzleObjective"></p><div class="tool-row"><button id="puzzleHint">提示</button><button id="puzzleReset">重置</button></div><p id="puzzleFeedback"></p></section>
+
+        <section class="room-card"><div class="panel-heading"><div><small>Move history</small><h3>步骤与事件</h3></div></div><div class="move-history" id="moveHistory"></div></section>
+      </aside>
+    </div>
+  </main>
+
+  <dialog class="go-dialog" id="createDialog"><form method="dialog" id="createGameForm"><div class="dialog-head"><div><div class="eyebrow">Game setup</div><h2 id="createDialogTitle">创建对局</h2></div><button id="closeCreateDialog" type="button" aria-label="关闭">×</button></div><input id="createMode" type="hidden"><label class="field target-field"><span>邀请用户</span><select id="targetUser"></select></label><div class="setup-grid"><label class="field"><span>棋盘</span><select id="setupBoardSize"></select></label><label class="field"><span>规则</span><select id="setupRules"></select></label><label class="field"><span>劫规则</span><select id="setupKoRule"></select></label><label class="field"><span>执子</span><select id="setupColor"><option value="random">随机</option><option value="creator_black">我执黑</option><option value="creator_white">我执白</option></select></label><label class="field"><span>让子</span><input id="setupHandicap" type="number" min="0" max="9" value="0"></label><label class="field"><span>贴目</span><input id="setupKomi" type="number" step="0.5" value="7.5"></label><label class="field"><span>计时</span><select id="setupTimeSystem"></select></label><label class="field"><span>基本时间（分钟）</span><input id="setupMainMinutes" type="number" min="1" value="30"></label><label class="field"><span>悔棋</span><select id="setupUndo"><option value="request">需对方同意</option><option value="none">不可悔棋</option><option value="unlimited">允许</option></select></label><label class="field ai-field hidden"><span>机器人难度</span><select id="setupAiProfile"></select></label><label class="field"><span>棋谱范围</span><select id="setupVisibility"><option value="participants">仅参与者</option><option value="private">仅创建者</option><option value="public">公开</option></select></label></div><p class="setup-note">设置会随邀请发送；接受后本局参数冻结。管理员只负责预设，不参与实际对局裁决。</p><div class="notice" id="createNotice"></div><button class="button" id="createSubmit">发送邀请</button></form></dialog>
+
+  <dialog class="go-dialog" id="puzzleDialog"><div class="dialog-head"><div><div class="eyebrow">Problem library</div><h2>选择题目</h2></div><button id="closePuzzles" aria-label="关闭">×</button></div><div id="puzzleList" class="puzzle-list"></div></dialog>
+  <dialog class="login-gate" id="goLoginGate"><div class="orbit-mark">○</div><h2>登录后进入围棋中心</h2><p>账号用于邀请、联机、保存研究与棋谱。</p><a class="button" href="/login.html">登录账号</a><a href="/games.html">返回小游戏菜单</a></dialog>
+
+  <script src="/assets/i18n.js"></script>
+  <script src="/assets/site.js"></script>
+  <script src="/assets/games/go.js"></script>
+</body>
+</html>
