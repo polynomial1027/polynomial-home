@@ -46,7 +46,13 @@
       <article class="go-panel"><div class="panel-heading"><div><small>Records</small><h2>最近棋谱</h2></div></div><div id="recordList" class="go-list"></div></article>
     </section>
 
-    <section class="go-panel go-preferences"><div class="panel-heading"><div><small>Appearance</small><h2>棋盘偏好</h2></div></div><form id="goPreferences"><label>棋盘<select id="prefBoardSkin"></select></label><label>棋子<select id="prefStoneSkin"></select></label><label class="check-label"><input id="prefCoordinates" type="checkbox">显示坐标</label><label class="check-label"><input id="prefMoveNumbers" type="checkbox">显示手数</label><label class="check-label"><input id="prefSound" type="checkbox">落子音效</label><label class="check-label"><input id="prefInvitable" type="checkbox">接受邀请</label><button class="button">保存偏好</button></form></section>
+    <section class="go-panel go-account-space">
+      <div class="panel-heading"><div><small>Player space</small><h2>用户主页与棋盘偏好</h2><p>查看个人战绩、对局记录，以及你和其他用户的交手成绩。</p></div><button class="mini-button" id="openOwnGoProfile">我的主页</button></div>
+      <div class="go-account-grid">
+        <div class="go-profile-card" id="goProfileCard"><div class="go-list-empty">正在读取个人战绩…</div></div>
+        <form id="goPreferences" class="go-preferences"><h3>棋盘偏好</h3><label>棋盘<select id="prefBoardSkin"></select></label><label>棋子<select id="prefStoneSkin"></select></label><label class="check-label"><input id="prefCoordinates" type="checkbox">显示坐标</label><label class="check-label"><input id="prefMoveNumbers" type="checkbox">显示手数</label><label class="check-label"><input id="prefSound" type="checkbox">落子音效</label><label class="check-label"><input id="prefInvitable" type="checkbox">接受邀请</label><button class="button">保存偏好</button></form>
+      </div>
+    </section>
   </main>
 
   <main class="go-room hidden" id="goRoom">
@@ -64,13 +70,13 @@
         <section class="room-card tool-card" id="studyTools">
           <h3>研究工具</h3><div class="segmented"><button class="active" data-study-method="play">规则落子</button><button data-study-method="setup">自由摆棋</button></div>
           <div class="tool-row"><button data-tool-color="auto" class="active">自动轮流</button><button data-tool-color="B">黑棋</button><button data-tool-color="W">白棋</button><button data-tool-color="erase">擦除</button></div>
-          <div class="tool-row"><button id="studyUndo">撤销</button><button id="studyRedo">重做</button><button id="studyPass">停一手</button><button id="studyClear">清空</button></div>
+          <div class="tool-row"><button id="studyUndo">撤销</button><button id="studyRedo">重做</button><button id="studyPass">停一手</button><button id="studyClear">清空</button><button id="studyImportSgf">导入 SGF</button></div>
           <label class="field"><span>研究标题</span><input id="studyTitle" maxlength="80" value="未命名研究"></label><label class="field"><span>局面评论</span><textarea id="studyComment" rows="3" maxlength="20000"></textarea></label>
         </section>
 
-        <section class="room-card tool-card hidden" id="gameTools"><h3>对局操作</h3><div class="tool-row"><button id="passMove">停一手</button><button id="requestUndo">申请悔棋</button><button id="retryAi" class="hidden">重试机器人</button><button id="resignGame" class="danger-tool">认输</button></div><div class="undo-request hidden" id="undoRequest"><p>对方申请悔棋</p><button id="acceptUndo">同意</button><button id="declineUndo">拒绝</button></div></section>
+        <section class="room-card tool-card hidden" id="gameTools"><h3>对局操作</h3><div class="tool-row"><button id="passMove">停一手</button><button id="requestUndo">申请悔棋</button><button id="retryAi" class="hidden">重试机器人</button><button id="resignGame" class="danger-tool">申请认输</button><button id="restartGame" class="hidden">重新开局</button></div><div class="undo-request hidden" id="undoRequest"><p>对方申请悔棋</p><button id="acceptUndo">同意</button><button id="declineUndo">拒绝</button></div><div class="undo-request hidden" id="resignRequest"><p id="resignRequestText">对方申请认输</p><button id="acceptResign">同意结束</button><button id="declineResign">不同意，继续下</button></div></section>
 
-        <section class="room-card tool-card hidden" id="sharedTools"><h3>共享棋盘</h3><div class="tool-row"><button data-shared-color="B" class="active">黑棋</button><button data-shared-color="W">白棋</button><button data-shared-color="erase">擦除</button></div><div class="tool-row"><button id="sharedUndo">撤销</button><button id="sharedRedo">重做</button><button id="sharedClear">清空</button><button id="sharedLock">锁定</button></div></section>
+        <section class="room-card tool-card hidden" id="sharedTools"><h3>共享棋盘</h3><div class="tool-row"><button data-shared-color="B" class="active">黑棋</button><button data-shared-color="W">白棋</button><button data-shared-color="erase">擦除</button></div><div class="tool-row"><button id="sharedUndo">撤销</button><button id="sharedRedo">重做</button><button id="sharedClear">清空</button><button id="sharedLock">锁定</button><button id="sharedImportSgf">载入 SGF 继续</button></div></section>
 
         <section class="room-card scoring-card hidden" id="scoringTools"><h3>KataGo 自动结算</h3><p>双方连续停一手后，由 KataGo 判断目数；双方确认后棋局才正式结束。</p><div class="tool-row"><button id="retryScore">重试自动结算</button></div><div id="scorePreview"></div></section>
 

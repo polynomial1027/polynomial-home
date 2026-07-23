@@ -25,6 +25,7 @@ const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nest
 const state = load();
 const loginAttempts = new Map();
 const feedbackAttempts = new Map();
+const userPresence = new Map();
 const notebookActivity = new Map();
 const notebookSockets = new Map();
 const learningRunsInFlight = new Set();
@@ -38,6 +39,19 @@ const clientAddress = req => {
   const trustedLocalProxy = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote);
   const forwarded = trustedLocalProxy ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
   return (forwarded || remote).slice(0, 100);
+};
+const appendAudit = ({ user = null, action, req, success = true, detail = '' }) => {
+  state.auditLogs.push({
+    id: crypto.randomUUID(), userId: user?.id || null, username: user?.username || null,
+    action: String(action).slice(0, 120), method: req?.method || null,
+    path: req ? new URL(req.url, 'http://localhost').pathname.slice(0, 300) : null,
+    address: req ? clientAddress(req) : null, userAgent: String(req?.headers?.['user-agent'] || '').slice(0, 500),
+    success: Boolean(success), detail: String(detail || '').slice(0, 500), at: new Date().toISOString()
+  });
+  state.auditLogs = state.auditLogs.slice(-50_000);
+};
+const touchPresence = (user, req) => {
+  if (user) userPresence.set(user.id, { lastSeenAt: new Date().toISOString(), address: clientAddress(req), userAgent: String(req.headers['user-agent'] || '').slice(0, 500) });
 };
 fs.mkdirSync(uploadDir, { recursive: true });
 const driveDir = path.join(dataDir, 'drive');
@@ -353,11 +367,13 @@ async function api(req, res, url) {
     const user = state.users.find(u => u.username.toLowerCase() === String(data.username || '').trim().toLowerCase() && u.active);
     if (!user || !verifyPassword(String(data.password || ''), user.passwordHash)) {
       recent.push(Date.now()); loginAttempts.set(ip, recent);
+      appendAudit({ action: 'login-failed', req, success: false, detail: String(data.username || '').trim() }); save(state);
       return json(res, 401, { error: '账号或密码错误' });
     }
     const token = crypto.randomBytes(32).toString('hex');
     state.sessions = state.sessions.filter(s => new Date(s.expiresAt) > new Date());
-    state.sessions.push({ token, userId: user.id, expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString() });
+    state.sessions.push({ token, userId: user.id, address: ip, userAgent: String(req.headers['user-agent'] || '').slice(0, 500), createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString() });
+    touchPresence(user, req); appendAudit({ user, action: 'login', req });
     save(state);
     res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''}`);
     return json(res, 200, { user: publicUser(user) });
@@ -365,7 +381,8 @@ async function api(req, res, url) {
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const token = cookies(req).session;
     const session = state.sessions.find(item => item.token === token);
-    state.sessions = state.sessions.filter(s => s.token !== token); save(state);
+    const logoutUser = session ? state.users.find(item => item.id === session.userId) : null;
+    state.sessions = state.sessions.filter(s => s.token !== token); if (logoutUser) appendAudit({ user: logoutUser, action: 'logout', req }); save(state);
     if (session) closeNotebookSockets(session.userId, token);
     if (session) goWss.clients.forEach(client => { if (client.sessionToken === token) client.close(4000, 'logout'); });
     res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
@@ -402,6 +419,20 @@ async function api(req, res, url) {
     if (!Number.isSafeInteger(retentionDays) || retentionDays < 7 || retentionDays > 3650) return json(res, 400, { error: '反馈保留天数必须是 7–3650 之间的整数' });
     Object.assign(state.settings, { feedbackEnabled: Boolean(data.feedbackEnabled), feedbackAnonymousEnabled: Boolean(data.feedbackAnonymousEnabled), feedbackMaxPerHour: maxPerHour, feedbackRetentionDays: retentionDays });
     pruneFeedback(); save(state); return json(res, 200, { settings: state.settings });
+  }
+  if (url.pathname === '/api/admin/activity' && req.method === 'GET') {
+    if (!requireUser(req, res, 'admin')) return;
+    const page = Math.max(1, Number(url.searchParams.get('page')) || 1), pageSize = 30;
+    const userId = String(url.searchParams.get('userId') || ''), query = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    const logs = state.auditLogs.filter(item => (!userId || item.userId === userId) && (!query || `${item.username || ''} ${item.action} ${item.path || ''} ${item.address || ''} ${item.detail || ''}`.toLowerCase().includes(query))).reverse();
+    const now = Date.now();
+    const users = state.users.map(user => {
+      const presence = userPresence.get(user.id), sessions = state.sessions.filter(session => session.userId === user.id && new Date(session.expiresAt) > new Date());
+      const liveSocket = [...goWss.clients, ...wss.clients].some(client => client.readyState === 1 && client.user?.id === user.id);
+      const lastSeenAt = presence?.lastSeenAt || sessions.map(item => item.lastSeenAt || item.createdAt).filter(Boolean).sort().at(-1) || null;
+      return { ...publicUser(user), online: liveSocket || Boolean(lastSeenAt && now - new Date(lastSeenAt).getTime() < 120_000), lastSeenAt, address: presence?.address || sessions.at(-1)?.address || null, userAgent: presence?.userAgent || sessions.at(-1)?.userAgent || null, sessionCount: sessions.length };
+    });
+    return json(res, 200, { users, logs: logs.slice((page - 1) * pageSize, page * pageSize), page, pages: Math.max(1, Math.ceil(logs.length / pageSize)), total: logs.length });
   }
   if (url.pathname === '/api/admin/feedback' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return;
@@ -442,6 +473,10 @@ async function api(req, res, url) {
   if (url.pathname === '/api/go/records' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return; return json(res, 200, { records: goService.listRecords(user) });
   }
+  const goProfileMatch = url.pathname.match(/^\/api\/go\/profiles\/([^/]+)$/);
+  if (goProfileMatch && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return; return json(res, 200, { profile: goService.profile(user, goProfileMatch[1]) });
+  }
   const goSgfMatch = url.pathname.match(/^\/api\/go\/games\/([^/]+)\/sgf$/);
   if (goSgfMatch && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return; const sgf = goService.exportSgf(user, goSgfMatch[1]);
@@ -453,13 +488,15 @@ async function api(req, res, url) {
     if (data.type === 'move') ({ game } = goService.move(user, id, data));
     else if (data.type === 'pass') ({ game } = goService.pass(user, id));
     else if (data.type === 'resign') game = goService.resign(user, id);
+    else if (data.type === 'resign-response') game = goService.respondResignation(user, id, Boolean(data.accept));
+    else if (data.type === 'restart') game = goService.restartGame(user, id);
     else if (data.type === 'undo-request') game = goService.requestUndo(user, id);
     else if (data.type === 'undo-response') game = goService.respondUndo(user, id, Boolean(data.accept));
     else if (data.type === 'retry-score') game = goService.retryScoring(user, id);
     else if (data.type === 'score-confirm') game = goService.respondScoring(user, id, true);
     else if (data.type === 'score-reject') game = goService.respondScoring(user, id, false);
     else if (data.type === 'retry-ai') game = goService.retryEngine(user, id);
-    else if (['setup', 'erase', 'undo', 'redo', 'clear', 'lock'].includes(data.type)) game = goService.sharedAction(user, id, data);
+    else if (['setup', 'erase', 'undo', 'redo', 'clear', 'lock', 'import-sgf'].includes(data.type)) game = goService.sharedAction(user, id, data);
     else return json(res, 400, { error: '未知围棋操作' });
     if (game.mode === 'ai' && game.status === 'active') {
       const engineColor = game.blackPlayer?.type === 'engine' ? 'B' : 'W';
@@ -873,6 +910,15 @@ function staticFile(req, res, url) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const actor = currentUser(req);
+  if (actor) {
+    touchPresence(actor, req);
+    const session = state.sessions.find(item => item.token === cookies(req).session);
+    if (session) session.lastSeenAt = new Date().toISOString();
+    if (url.pathname.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !['/api/login', '/api/logout'].includes(url.pathname)) {
+      res.once('finish', () => { appendAudit({ user: actor, action: 'api-action', req, success: res.statusCode < 400, detail: `HTTP ${res.statusCode}` }); save(state); });
+    }
+  }
   try { if (url.pathname.startsWith('/api/')) await api(req, res, url); else if (url.pathname.startsWith('/python/session/')) await proxyNotebookHttp(req, res); else staticFile(req, res, url); }
   catch (error) {
     console.error(error);

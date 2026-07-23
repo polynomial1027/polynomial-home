@@ -144,10 +144,32 @@ test('参与者可删除进行中棋局和最近棋谱，旁观者不能删除',
   const secondInvite = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'online', config: { boardSize: 9, colorChoice: 'creator_black', timeSystem: 'none' } });
   const recordId = service.respondInvitation(users[1], secondInvite.id, 'accept').game.id;
   service.resign(users[1], recordId);
+  service.respondResignation(users[0], recordId, true);
   assert.equal(service.listRecords(users[0]).some(record => record.id === recordId), true);
   assert.equal(service.deleteGame(users[0], recordId).wasActive, false);
   assert.equal(service.listRecords(users[0]).some(record => record.id === recordId), false);
   assert.equal(service.listRecords(users[1]).some(record => record.id === recordId), false);
+});
+
+test('用户围棋主页分开统计单机多人，并按查看者计算交手胜率', () => {
+  const { service, users } = fixture();
+  const invite = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'online', config: { boardSize: 9, colorChoice: 'creator_black', timeSystem: 'none' } });
+  const onlineId = service.respondInvitation(users[1], invite.id, 'accept').game.id;
+  service.resign(users[1], onlineId);
+  service.respondResignation(users[0], onlineId, true);
+  const ai = service.createAiGame(users[1], { boardSize: 9, colorChoice: 'creator_black', timeSystem: 'none' });
+  service.resign(users[1], ai.id);
+
+  const own = service.profile(users[1], users[1].id);
+  assert.deepEqual(own.stats.multiplayer, { games: 1, wins: 0, losses: 1, draws: 0, winRate: 0 });
+  assert.deepEqual(own.stats.singlePlayer, { games: 1, wins: 0, losses: 1, draws: 0, winRate: 0 });
+  assert.equal(own.headToHead, null);
+
+  const opponent = service.profile(users[0], users[1].id);
+  assert.equal(opponent.headToHead.games, 1);
+  assert.equal(opponent.headToHead.wins, 1);
+  assert.equal(opponent.headToHead.winRate, 100);
+  assert.equal(opponent.records.length, 1);
 });
 
 test('共享棋盘允许双方自由摆棋、撤销和房主锁定', () => {
@@ -160,6 +182,39 @@ test('共享棋盘允许双方自由摆棋、撤销和房主锁定', () => {
   assert.equal(service.position(state.goGames[0]).board[4 * 9 + 4], null);
   service.sharedAction(users[0], gameId, { type: 'lock', locked: true });
   assert.throws(() => service.sharedAction(users[1], gameId, { type: 'setup', color: 'B', x: 3, y: 3 }), error => error.code === 'BOARD_LOCKED');
+});
+
+test('认输需对手确认，拒绝后继续，和 KataGo 共用累计强制次数', () => {
+  const { service, state, users } = fixture();
+  const invite = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'online', config: { boardSize: 9, colorChoice: 'creator_black', timeSystem: 'none' } });
+  const id = service.respondInvitation(users[1], invite.id, 'accept').game.id;
+  service.resign(users[1], id);
+  assert.equal(state.goGames[0].status, 'resigning');
+  service.respondResignation(users[0], id, false);
+  assert.equal(state.goGames[0].status, 'active');
+  assert.equal(state.goGames[0].decisionCount, 1);
+  service.resign(users[1], id); service.respondResignation(users[0], id, false);
+  service.resign(users[1], id);
+  assert.equal(state.goGames[0].status, 'finished');
+  assert.equal(state.goGames[0].result, 'B+R');
+});
+
+test('共享棋盘可导入 SGF 主变化并继续编辑，结束棋局可重新开局', () => {
+  const { service, state, users } = fixture();
+  const sharedInvite = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'shared', config: { boardSize: 9 } });
+  const sharedId = service.respondInvitation(users[1], sharedInvite.id, 'accept').game.id;
+  service.sharedAction(users[0], sharedId, { type: 'import-sgf', sgf: '(;GM[1]FF[4]SZ[9];B[cc];W[dd])' });
+  service.sharedAction(users[1], sharedId, { type: 'setup', color: 'B', x: 4, y: 4 });
+  assert.equal(service.position(state.goGames[0]).board[4 * 9 + 4], 'B');
+
+  const invite = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'online', config: { boardSize: 9, colorChoice: 'creator_black', timeSystem: 'none' } });
+  const id = service.respondInvitation(users[1], invite.id, 'accept').game.id;
+  service.resign(users[1], id); service.respondResignation(users[0], id, true);
+  service.restartGame(users[0], id);
+  const game = state.goGames.find(item => item.id === id);
+  assert.equal(game.status, 'active');
+  assert.equal(game.result, null);
+  assert.equal(game.moves.length, 0);
 });
 
 test('题库保存会验证轮次、坐标和落子合法性，失败不污染题库', () => {

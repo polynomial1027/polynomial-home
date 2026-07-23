@@ -2,7 +2,7 @@
 
 const $ = id => document.getElementById(id);
 const h = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const goState = { user: null, lobby: null, game: null, study: null, puzzle: null, puzzleSequence: [], mode: null, busy: false, dead: new Set(), sharedColor: 'B', socket: null, refreshTimer: null, clockReceivedAt: 0, dismissedScoreId: null };
+const goState = { user: null, lobby: null, profile: null, game: null, study: null, puzzle: null, puzzleSequence: [], mode: null, busy: false, dead: new Set(), sharedColor: 'B', socket: null, refreshTimer: null, clockReceivedAt: 0, dismissedScoreId: null };
 const skinNames = { walnut: '胡桃木', bamboo: '竹色', midnight: '夜色', classic: '经典云子', slate: '磨砂棋子', flat: '扁平棋子' };
 
 async function goApi(url, options = {}) {
@@ -25,7 +25,7 @@ function formatMode(mode) {
 }
 
 function formatStatus(status) {
-  return ({ active: '进行中', scoring: '数目确认', finished: '已结束', void: '无效局' })[status] || status;
+  return ({ active: '进行中', scoring: '数目确认', resigning: '等待认输确认', finished: '已结束', void: '无效局' })[status] || status;
 }
 
 function formatTime(ms) {
@@ -63,6 +63,42 @@ function scheduleLobbyRefresh() {
 async function loadLobby() {
   goState.lobby = await goApi('/api/go/lobby');
   renderLobby();
+  if (!goState.profile) await loadGoProfile(goState.user.id);
+}
+
+function playerProfileButton(player) {
+  return player?.type === 'user' && player.userId
+    ? `<button class="go-player-link" data-open-profile="${h(player.userId)}">${h(player.displayName || '已删除用户')}</button>`
+    : h(player?.displayName || player?.name || '—');
+}
+
+function statsCard(title, stats) {
+  const rate = stats.winRate === null ? '—' : `${stats.winRate}%`;
+  return `<div class="go-stat-card"><small>${h(title)}</small><strong>${rate}</strong><span>${stats.games} 局 · ${stats.wins} 胜 ${stats.losses} 负 ${stats.draws} 和</span></div>`;
+}
+
+async function loadGoProfile(userId) {
+  try {
+    const data = await goApi(`/api/go/profiles/${encodeURIComponent(userId)}`);
+    goState.profile = data.profile;
+    renderGoProfile();
+  } catch (error) {
+    $('goProfileCard').innerHTML = `<div class="go-list-empty">${h(error.message)}</div>`;
+  }
+}
+
+function renderGoProfile() {
+  const profile = goState.profile;
+  if (!profile) return;
+  const directoryUsers = [{ id: goState.user.id, displayName: goState.user.displayName }, ...(goState.lobby?.users || [])]
+    .filter((user, index, list) => list.findIndex(item => item.id === user.id) === index);
+  const directory = `<div class="go-profile-directory"><small>切换用户</small><div>${directoryUsers.map(user => `<button class="${user.id === profile.user.id ? 'active' : ''}" data-open-profile="${h(user.id)}">${h(user.displayName)}</button>`).join('')}</div></div>`;
+  const versus = profile.headToHead
+    ? `<section class="go-versus"><small>你与该用户</small><h3>交手胜率 ${profile.headToHead.winRate === null ? '—' : `${profile.headToHead.winRate}%`}</h3><p>${profile.headToHead.games} 局 · 你 ${profile.headToHead.wins} 胜 ${profile.headToHead.losses} 负 ${profile.headToHead.draws} 和</p></section>`
+    : '';
+  const rows = profile.records.map(record => `<div class="go-profile-record"><div><b>${h(record.result || '已结束')} · ${h(formatMode(record.mode))}</b><small>${playerProfileButton(record.blackPlayer)} vs ${playerProfileButton(record.whitePlayer)} · ${record.config.boardSize} 路 · ${record.moveCount} 手</small></div><button data-open-game="${record.id}">查看</button></div>`).join('') || '<div class="go-list-empty">暂无可查看的对局记录</div>';
+  $('goProfileCard').innerHTML = `${directory}<header class="go-profile-head"><div><small>${profile.own ? 'MY GO PROFILE' : 'PLAYER PROFILE'}</small><h3>${h(profile.user.displayName)}</h3><span>@${h(profile.user.username)}</span></div></header><div class="go-stats-grid">${statsCard('单机胜率', profile.stats.singlePlayer)}${statsCard('多人胜率', profile.stats.multiplayer)}</div>${versus}<div class="go-profile-records"><div class="go-profile-record-title"><h3>对局记录</h3><span>最多显示 50 局</span></div>${rows}</div>`;
+  bindDynamicLobbyActions();
 }
 
 function renderLobby() {
@@ -75,7 +111,7 @@ function renderLobby() {
     return `<div class="go-list-item"><div><strong>${incoming ? '收到' : '发出'} · ${h(formatMode(item.mode))}</strong><small>${h(person?.displayName || '已删除用户')} · ${item.config.boardSize} 路 · ${item.config.rules === 'japanese' ? '日本规则' : '中国规则'} · ${item.status === 'pending' ? '等待处理' : '已接受'}</small></div><div class="go-list-actions">${item.gameId ? `<button data-open-game="${item.gameId}" class="accept">进入</button>` : incoming ? `<button data-invite-action="accept" data-invite-id="${item.id}" class="accept">接受</button><button data-invite-action="decline" data-invite-id="${item.id}">拒绝</button>` : `<button data-invite-action="cancel" data-invite-id="${item.id}">取消</button>`}</div></div>`;
   }).join('');
   $('invitationList').innerHTML = invitationRows || '<div class="go-list-empty">暂时没有待处理邀请</div>';
-  $('activeGameList').innerHTML = games.map(game => `<div class="go-list-item"><div><strong>${h(formatMode(game.mode))} · ${h(formatStatus(game.status))}</strong><small>${game.config.boardSize} 路 · ${game.blackPlayer?.displayName || '协作'} / ${game.whitePlayer?.displayName || '棋盘'}${game.engineThinking ? ' · KataGo 思考中' : ''}</small></div><div class="go-list-actions"><button data-open-game="${game.id}" class="accept">继续</button><button data-delete-game="${game.id}" data-game-active="true">删除</button></div></div>`).join('') || '<div class="go-list-empty">没有进行中的棋局</div>';
+  $('activeGameList').innerHTML = games.map(game => `<div class="go-list-item"><div><strong>${h(formatMode(game.mode))} · ${h(formatStatus(game.status))}</strong><small>${game.config.boardSize} 路 · ${playerProfileButton(game.blackPlayer)} / ${playerProfileButton(game.whitePlayer)}${game.engineThinking ? ' · KataGo 思考中' : ''}</small></div><div class="go-list-actions"><button data-open-game="${game.id}" class="accept">继续</button><button data-delete-game="${game.id}" data-game-active="true">删除</button></div></div>`).join('') || '<div class="go-list-empty">没有进行中的棋局</div>';
   $('recordList').innerHTML = records.map(record => `<div class="go-list-item"><div><strong>${h(record.result || '已结束')} · ${h(formatMode(record.mode))}</strong><small>${record.config.boardSize} 路 · ${record.moveCount} 手 · ${new Date(record.endedAt).toLocaleDateString()}</small></div><div class="go-list-actions"><button data-open-game="${record.id}">回放</button>${capabilities.sgfExport ? `<a href="/api/go/games/${record.id}/sgf">SGF</a>` : ''}<button data-delete-game="${record.id}">删除</button></div></div>`).join('') || '<div class="go-list-empty">还没有完成的棋谱</div>';
   $('studyList').innerHTML = capabilities.study ? (studies.map(study => `<div class="go-list-item"><div><strong data-i18n-user>${h(study.title)}</strong><small>${study.boardSize} 路 · ${new Date(study.updatedAt).toLocaleString()}</small></div><div class="go-list-actions"><button data-open-study="${study.id}" class="accept">打开</button><button data-delete-study="${study.id}">删除</button></div></div>`).join('') || '<div class="go-list-empty">还没有保存研究棋谱</div>') : '<div class="go-list-empty">管理员尚未为此账号开放研究权限</div>';
   $('puzzleList').innerHTML = capabilities.puzzles ? (puzzles.map(puzzle => `<button class="puzzle-item" data-open-puzzle="${puzzle.id}"><span>${h(puzzle.difficulty)} · ${puzzle.boardSize} 路</span><strong>${h(puzzle.title)}</strong><p>${h(puzzle.objective)}</p></button>`).join('') || '<div class="go-list-empty">管理员尚未发布题目</div>') : '<div class="go-list-empty">管理员尚未为此账号开放题库权限</div>';
@@ -93,6 +129,7 @@ function fillSelect(select, values, selected, label = value => value) {
 }
 
 function bindDynamicLobbyActions() {
+  document.querySelectorAll('[data-open-profile]').forEach(button => button.onclick = event => { event.stopPropagation(); loadGoProfile(button.dataset.openProfile); });
   document.querySelectorAll('[data-open-game]').forEach(button => button.onclick = () => openGame(button.dataset.openGame));
   document.querySelectorAll('[data-invite-action]').forEach(button => button.onclick = async () => {
     button.disabled = true;
@@ -194,6 +231,10 @@ function renderGame() {
   const engineColor = game.blackPlayer?.type === 'engine' ? 'B' : 'W';
   $('retryAi').classList.toggle('hidden', !(game.mode === 'ai' && game.status === 'active' && game.engineError && game.toPlay === engineColor));
   $('passMove').disabled = game.status !== 'active' || game.ownColor !== game.toPlay; $('resignGame').disabled = !['active', 'scoring'].includes(game.status);
+  $('restartGame').classList.toggle('hidden', !['finished', 'void'].includes(game.status) || !game.canEdit);
+  const resignPending = game.status === 'resigning' && game.resignation;
+  $('resignRequest').classList.toggle('hidden', !resignPending || game.resignation?.requestedBy === goState.user.id);
+  if (resignPending) $('resignRequestText').textContent = `对方申请认输（累计判定 ${game.resignation.decisionCount} / ${game.resignation.forcedAfter} 次）`;
   $('sharedLock').textContent = game.shared?.locked ? '解除锁定' : '锁定';
   $('boardShell').dataset.boardSkin = game.config.boardSkin || goState.lobby.userSettings.boardSkin; $('boardShell').dataset.stoneSkin = game.config.stoneSkin || goState.lobby.userSettings.stoneSkin;
   renderBoard(board, game.config.boardSize, { lastMove: [...game.moves].reverse().find(move => !move.undoneAt && move.type === 'move'), moves: game.moves, dead: goState.dead });
@@ -465,7 +506,8 @@ function bindStaticControls() {
   $('createGameForm').addEventListener('submit', submitCreate); $('closeCreateDialog').onclick = () => $('createDialog').close(); $('closePuzzles').onclick = () => $('puzzleDialog').close(); $('refreshLobby').onclick = () => loadLobby(); $('leaveRoom').onclick = leaveRoom; $('saveStudy').onclick = saveStudy;
   $('setupHandicap').addEventListener('change', () => { $('setupKomi').value = Number($('setupHandicap').value) >= 2 ? goState.lobby.config.handicapKomi : goState.lobby.config.defaultKomi; });
   $('goBoard').addEventListener('click', event => { const point = event.target.closest('[data-point]'); if (point) handleBoardPoint(Number(point.dataset.x), Number(point.dataset.y)); });
-  $('passMove').onclick = () => gameAction({ type: 'pass' }, '提交停一手…'); $('requestUndo').onclick = () => gameAction({ type: 'undo-request' }, '发送悔棋请求…'); $('resignGame').onclick = () => confirm('确定认输并结束本局吗？') && gameAction({ type: 'resign' }, '结束棋局…');
+  $('passMove').onclick = () => gameAction({ type: 'pass' }, '提交停一手…'); $('requestUndo').onclick = () => gameAction({ type: 'undo-request' }, '发送悔棋请求…'); $('resignGame').onclick = () => confirm('确定发起认输申请吗？对方同意后棋局结束；累计达到后台阈值后将强制生效。') && gameAction({ type: 'resign' }, '发送认输申请…');
+  $('acceptResign').onclick = () => gameAction({ type: 'resign-response', accept: true }, '确认认输结果…'); $('declineResign').onclick = () => gameAction({ type: 'resign-response', accept: false }, '恢复棋局…'); $('restartGame').onclick = () => confirm('确定清空本局棋步并使用相同参数重新开局吗？') && gameAction({ type: 'restart' }, '重新开局…');
   $('retryAi').onclick = () => gameAction({ type: 'retry-ai' }, '重新请求 KataGo 落子…');
   $('acceptUndo').onclick = () => gameAction({ type: 'undo-response', accept: true }); $('declineUndo').onclick = () => gameAction({ type: 'undo-response', accept: false });
   $('retryScore').onclick = () => gameAction({ type: 'retry-score' }, '重新请求 KataGo 结算…');
@@ -473,7 +515,7 @@ function bindStaticControls() {
   $('rejectScore').onclick = () => confirm('拒绝本次结果并恢复棋局继续落子吗？') && gameAction({ type: 'score-reject' }, '恢复棋局…');
   $('closeScoreResult').onclick = () => { goState.dismissedScoreId = goState.game?.id || null; $('scoreResultDialog').close(); };
   document.querySelectorAll('[data-shared-color]').forEach(button => button.onclick = () => { goState.sharedColor = button.dataset.sharedColor; document.querySelectorAll('[data-shared-color]').forEach(item => item.classList.toggle('active', item === button)); });
-  $('sharedUndo').onclick = () => gameAction({ type: 'undo' }); $('sharedRedo').onclick = () => gameAction({ type: 'redo' }); $('sharedClear').onclick = () => confirm('确定清空共享棋盘吗？') && gameAction({ type: 'clear' }); $('sharedLock').onclick = () => gameAction({ type: 'lock', locked: !goState.game.shared.locked });
+  $('sharedUndo').onclick = () => gameAction({ type: 'undo' }); $('sharedRedo').onclick = () => gameAction({ type: 'redo' }); $('sharedClear').onclick = () => confirm('确定清空共享棋盘吗？') && gameAction({ type: 'clear' }); $('sharedLock').onclick = () => gameAction({ type: 'lock', locked: !goState.game.shared.locked }); $('sharedImportSgf').onclick = () => { $('sgfFile').dataset.target = 'shared'; $('sgfFile').click(); };
   document.querySelectorAll('[data-study-method]').forEach(button => button.onclick = () => { goState.study.method = button.dataset.studyMethod; document.querySelectorAll('[data-study-method]').forEach(item => item.classList.toggle('active', item === button)); renderStudy(); });
   document.querySelectorAll('[data-tool-color]').forEach(button => button.onclick = () => { goState.study.colorTool = button.dataset.toolColor; document.querySelectorAll('[data-tool-color]').forEach(item => item.classList.toggle('active', item === button)); renderStudy(); });
   $('studyUndo').onclick = () => { const id = goState.study.currentId; if (id !== 'root') { goState.study.currentId = goState.study.parents.get(id) || 'root'; renderStudy(); } };
@@ -481,8 +523,9 @@ function bindStaticControls() {
   $('studyPass').onclick = () => { const position = studyPosition(), color = goState.study.colorTool === 'B' || goState.study.colorTool === 'W' ? goState.study.colorTool : position.toPlay; addStudyNode({ type: 'pass', color, pass: true }); };
   $('studyClear').onclick = () => confirm('确定在当前变化中清空棋盘吗？') && addStudyNode({ type: 'clear' });
   $('puzzleHint').onclick = () => { const hints = goState.puzzle.hints || []; $('puzzleFeedback').textContent = hints.length ? hints[goState.puzzleSequence.length % hints.length] : '这道题暂时没有提示。'; }; $('puzzleReset').onclick = resetPuzzle;
-  $('importSgf').onclick = () => $('sgfFile').click(); $('sgfFile').onchange = async event => { const file = event.target.files[0]; if (!file) return; try { const data = await goApi('/api/go/studies/import', { method: 'POST', body: JSON.stringify({ sgf: await file.text() }) }); await loadLobby(); openStudy(data.study.id); } catch (error) { alert(error.message); } event.target.value = ''; };
+  $('importSgf').onclick = () => { $('sgfFile').dataset.target = 'study'; $('sgfFile').click(); }; $('studyImportSgf').onclick = () => { $('sgfFile').dataset.target = 'study'; $('sgfFile').click(); }; $('sgfFile').onchange = async event => { const file = event.target.files[0]; if (!file) return; try { const sgf = await file.text(); if (event.target.dataset.target === 'shared' && goState.game?.mode === 'shared') await gameAction({ type: 'import-sgf', sgf }, '载入 SGF…'); else { const data = await goApi('/api/go/studies/import', { method: 'POST', body: JSON.stringify({ sgf }) }); await loadLobby(); openStudy(data.study.id); } } catch (error) { alert(error.message); } event.target.value = ''; delete event.target.dataset.target; };
   $('goPreferences').onsubmit = async event => { event.preventDefault(); const data = await goApi('/api/go/user-settings', { method: 'PATCH', body: JSON.stringify({ boardSkin: $('prefBoardSkin').value, stoneSkin: $('prefStoneSkin').value, coordinates: $('prefCoordinates').checked, showMoveNumbers: $('prefMoveNumbers').checked, sound: $('prefSound').checked, invitable: $('prefInvitable').checked }) }); goState.lobby.userSettings = data.settings; renderLobby(); };
+  $('openOwnGoProfile').onclick = () => loadGoProfile(goState.user.id);
 }
 
 async function initGo() {

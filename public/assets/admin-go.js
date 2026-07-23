@@ -1,7 +1,7 @@
 'use strict';
 
 const goAdminStyle = document.createElement('link'); goAdminStyle.rel = 'stylesheet'; goAdminStyle.href = '/assets/admin-go.css'; document.head.append(goAdminStyle);
-let goAdminData = null, feedbackPage = 1, feedbackPages = 1, puzzleStones = [], puzzleTool = 'B';
+let goAdminData = null, feedbackPage = 1, feedbackPages = 1, activityPage = 1, activityPages = 1, puzzleStones = [], puzzleTool = 'B';
 const goSettingIds = ['goEnabled','goAllowedBoardSizes','goDefaultBoardSize','goAllowedRules','goDefaultRules','goAllowedKoRules','goDefaultKoRule','goDefaultKomi','goHandicapKomi','goMaxHandicap','goUndoDefault','goMaxUndoRequests','goRecordDefaultVisibility','goAllowedTimeSystems','goDefaultMainMinutes','goMaxMainMinutes','goDefaultByoYomiSeconds','goDefaultByoYomiPeriods','goInviteExpiryMinutes','goMaxPendingInvites','goDisconnectPolicy','goDisconnectGraceSeconds','goAiEnabled','goKataGoBinary','goKataGoModel','goKataGoConfig','goAiMoveTimeoutSeconds','goAiResignWinrateThreshold','goAiResignConsecutiveTurns','goScoreMaxVisits','goScoreMaxTime','goScoreForcedAfter','goAiProfiles','goStudyMaxCount','goStudyMaxKB','goBoardSkins','goDefaultBoardSkin','goStoneSkins','goDefaultStoneSkin'];
 
 async function loadGoAdmin() {
@@ -69,13 +69,26 @@ async function submitFeedbackSettings(event) {
   } catch (error) { notice.style.color = 'var(--danger)'; notice.textContent = error.message; }
 }
 
+async function loadActivity() {
+  if (!document.querySelector('#adminActivityList')) return;
+  const userId = encodeURIComponent(document.querySelector('#activityUser').value), q = encodeURIComponent(document.querySelector('#activitySearch').value.trim());
+  const data = await request(`/api/admin/activity?page=${activityPage}&userId=${userId}&q=${q}`); activityPages = data.pages;
+  const selector = document.querySelector('#activityUser'), selected = selector.value;
+  selector.innerHTML = '<option value="">全部用户</option>' + data.users.map(user => `<option value="${user.id}">${esc(user.displayName)} · @${esc(user.username)}</option>`).join(''); selector.value = selected;
+  document.querySelector('#adminPresenceList').innerHTML = `<div class="feedback-summary">${data.users.map(user => `<div class="feedback-count"><small>${user.online ? '● 在线' : '○ 离线'} · @${esc(user.username)}</small><strong>${user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : '无记录'}</strong><small>${esc(user.address || '未知地址')} · ${user.sessionCount} 个会话</small></div>`).join('')}</div>`;
+  const actionNames = { login: '登录成功', 'login-failed': '登录失败', logout: '退出登录', 'api-action': '执行操作' };
+  document.querySelector('#adminActivityList').innerHTML = data.logs.map(item => `<div class="go-puzzle-admin-row"><div><strong>${actionNames[item.action] || esc(item.action)} · ${esc(item.username || '未识别账号')}</strong><small>${new Date(item.at).toLocaleString()} · ${esc(item.address || '未知地址')} · ${esc(item.method || '')} ${esc(item.path || '')} · ${item.success ? '成功' : '失败'}</small></div></div>`).join('') || '<div class="empty">没有匹配的操作记录</div>';
+  document.querySelector('#activityPageInfo').textContent = `第 ${data.page} / ${data.pages} 页，共 ${data.total} 条`; document.querySelector('#prevActivityPage').disabled = data.page <= 1; document.querySelector('#nextActivityPage').disabled = data.page >= data.pages;
+}
+
 function bindGoAdmin() {
   document.querySelector('#goSettingsForm')?.addEventListener('submit', submitGoSettings); document.querySelector('#refreshGoAdmin')?.addEventListener('click', loadGoAdmin); document.querySelector('#newGoPuzzle')?.addEventListener('click', () => openPuzzleEditor()); document.querySelector('#goPuzzleForm')?.addEventListener('submit', savePuzzleEditor); document.querySelector('#goPuzzleSize')?.addEventListener('change', () => { puzzleStones = []; renderPuzzleEditorBoard(); });
   document.querySelector('#closeGoPuzzleDialog')?.addEventListener('click', () => document.querySelector('#goPuzzleDialog').close());
   document.querySelector('#feedbackSettingsForm')?.addEventListener('submit', submitFeedbackSettings);
+  document.querySelector('#refreshActivity')?.addEventListener('click', loadActivity); document.querySelector('#searchActivity')?.addEventListener('click', () => { activityPage = 1; loadActivity(); }); document.querySelector('#activityUser')?.addEventListener('change', () => { activityPage = 1; loadActivity(); }); document.querySelector('#prevActivityPage')?.addEventListener('click', () => { if (activityPage > 1) { activityPage--; loadActivity(); } }); document.querySelector('#nextActivityPage')?.addEventListener('click', () => { if (activityPage < activityPages) { activityPage++; loadActivity(); } });
   document.querySelectorAll('[data-puzzle-stone]').forEach(button => button.onclick = () => { puzzleTool = button.dataset.puzzleStone; document.querySelectorAll('[data-puzzle-stone]').forEach(item => item.classList.toggle('active', item === button)); }); document.querySelector('#clearPuzzleBoard')?.addEventListener('click', () => { puzzleStones = []; renderPuzzleEditorBoard(); });
   document.querySelector('#deleteGoPuzzle')?.addEventListener('click', async () => { const id = document.querySelector('#goPuzzleId').value; if (!id || !confirm('确定删除这道围棋题目吗？')) return; await request(`/api/admin/go/puzzles/${id}`, { method: 'DELETE' }); document.querySelector('#goPuzzleDialog').close(); await loadGoAdmin(); });
   document.querySelector('#searchFeedback')?.addEventListener('click', () => { feedbackPage = 1; loadFeedback(); }); document.querySelector('#feedbackStatus')?.addEventListener('change', () => { feedbackPage = 1; loadFeedback(); }); document.querySelector('#prevFeedbackPage')?.addEventListener('click', () => { if (feedbackPage > 1) { feedbackPage--; loadFeedback(); } }); document.querySelector('#nextFeedbackPage')?.addEventListener('click', () => { if (feedbackPage < feedbackPages) { feedbackPage++; loadFeedback(); } });
 }
 
-bindGoAdmin(); Promise.all([loadGoAdmin(), loadFeedback()]).catch(error => console.error('Go admin:', error));
+bindGoAdmin(); Promise.all([loadGoAdmin(), loadFeedback(), loadActivity()]).catch(error => console.error('Go admin:', error));
