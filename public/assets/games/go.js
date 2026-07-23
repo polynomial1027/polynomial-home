@@ -2,7 +2,7 @@
 
 const $ = id => document.getElementById(id);
 const h = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const goState = { user: null, lobby: null, game: null, study: null, puzzle: null, puzzleSequence: [], mode: null, busy: false, dead: new Set(), sharedColor: 'B', socket: null, refreshTimer: null, clockReceivedAt: 0 };
+const goState = { user: null, lobby: null, game: null, study: null, puzzle: null, puzzleSequence: [], mode: null, busy: false, dead: new Set(), sharedColor: 'B', socket: null, refreshTimer: null, clockReceivedAt: 0, dismissedScoreId: null };
 const skinNames = { walnut: '胡桃木', bamboo: '竹色', midnight: '夜色', classic: '经典云子', slate: '磨砂棋子', flat: '扁平棋子' };
 
 async function goApi(url, options = {}) {
@@ -70,7 +70,7 @@ function renderLobby() {
   $('engineLight').classList.toggle('ready', config.ai.available);
   $('engineStatus').textContent = config.ai.available ? (config.ai.running ? '正在运行' : '已安装，等待对局') : '尚未就绪';
   $('engineDescription').textContent = config.ai.available ? '人机对弈已开放，首次加载模型可能稍慢。' : '其余围棋模式可正常使用；管理员完成 KataGo 环境安装后自动开放。';
-  const invitationRows = invitations.filter(item => ['pending', 'accepted'].includes(item.status)).map(item => {
+  const invitationRows = invitations.filter(item => item.status === 'pending').map(item => {
     const incoming = item.toUserId === goState.user.id, person = incoming ? item.fromUser : item.toUser;
     return `<div class="go-list-item"><div><strong>${incoming ? '收到' : '发出'} · ${h(formatMode(item.mode))}</strong><small>${h(person?.displayName || '已删除用户')} · ${item.config.boardSize} 路 · ${item.config.rules === 'japanese' ? '日本规则' : '中国规则'} · ${item.status === 'pending' ? '等待处理' : '已接受'}</small></div><div class="go-list-actions">${item.gameId ? `<button data-open-game="${item.gameId}" class="accept">进入</button>` : incoming ? `<button data-invite-action="accept" data-invite-id="${item.id}" class="accept">接受</button><button data-invite-action="decline" data-invite-id="${item.id}">拒绝</button>` : `<button data-invite-action="cancel" data-invite-id="${item.id}">取消</button>`}</div></div>`;
   }).join('');
@@ -190,6 +190,7 @@ function renderGame() {
   renderBoard(board, game.config.boardSize, { lastMove: [...game.moves].reverse().find(move => !move.undoneAt && move.type === 'move'), moves: game.moves, dead: goState.dead });
   renderHistory(game.moves, game.events);
   if (game.status === 'scoring') renderScoreTools();
+  renderScoreResult(game);
   const ownTurn = game.status === 'active' && game.ownColor === game.toPlay;
   setBoardMessage(game.engineThinking ? 'KataGo 正在思考…' : game.status === 'scoring' ? (game.scoring?.error ? `KataGo 自动结算失败：${game.scoring.error}。请点击“重试自动结算”。` : 'KataGo 正在统一判断目数与胜负…') : game.engineError ? `KataGo 本次落子失败：${game.engineError}。可点击“重试机器人”。` : game.status === 'finished' || game.status === 'void' ? `棋局结束：${game.result}` : game.mode === 'shared' ? (game.shared?.locked ? '棋盘已锁定。' : '双方可以自由摆棋。') : ownTurn ? '轮到你落子。' : '等待对方落子。', Boolean(game.engineError || game.scoring?.error));
 }
@@ -212,8 +213,38 @@ function updateClockElement(element, color, game) {
 
 function renderScoreTools() {
   const scoring = goState.game.scoring || {};
-  $('scorePreview').innerHTML = `<div class="score-preview-line"><span>判定来源</span><b>KataGo</b></div><div class="score-preview-line"><span>当前状态</span><b>${scoring.thinking || scoring.pending ? '计算中' : scoring.error ? '等待重试' : '准备结算'}</b></div>`;
+  const status = scoring.thinking || scoring.pending ? '计算中' : scoring.error ? '等待重试' : scoring.assessment ? '等待双方确认' : '准备结算';
+  $('scorePreview').innerHTML = `<div class="score-preview-line"><span>判定来源</span><b>KataGo</b></div><div class="score-preview-line"><span>当前状态</span><b>${status}</b></div><div class="score-preview-line"><span>本局裁决次数</span><b>${Number(scoring.adjudicationCount || 0)} / ${Number(scoring.forcedAfter || goState.lobby.config.scoreForcedAfter || 3)}</b></div>`;
   $('retryScore').disabled = Boolean(scoring.thinking);
+  $('retryScore').classList.toggle('hidden', !scoring.error);
+}
+
+function renderScoreResult(game) {
+  const dialog = $('scoreResultDialog'), scoring = game.scoring || {};
+  const shouldShow = Boolean(scoring.assessment && (game.status === 'scoring' || goState.dismissedScoreId !== game.id));
+  if (!shouldShow) { if (dialog.open) dialog.close(); return; }
+  const winner = scoring.winner;
+  $('scoreResultMark').textContent = winner === 'W' ? '○' : winner === 'B' ? '●' : '◐';
+  $('scoreResultMark').className = `score-result-mark ${winner === 'W' ? 'white-win' : winner === 'B' ? 'black-win' : 'draw'}`;
+  $('scoreResultTitle').textContent = winner === 'B' ? '黑棋获胜' : winner === 'W' ? '白棋获胜' : '本局和棋';
+  const margin = Number(scoring.margin || 0);
+  $('scoreResultMargin').textContent = winner ? `胜 ${margin.toFixed(margin % 1 ? 1 : 0)} 目` : '双方目数相同';
+  const ownConfirmed = Boolean(scoring.confirmations?.[goState.user.id]), forced = Boolean(scoring.forced);
+  $('scoreResultStatus').textContent = forced ? '已达到强制裁决次数，本次结果立即生效' : ownConfirmed ? '你已确认，正在等待对方确认' : '请确认 KataGo 的结算结果';
+  const players = [{ color: '黑方', player: game.blackPlayer }, { color: '白方', player: game.whitePlayer }];
+  $('scoreConfirmations').innerHTML = players.map(({ color, player }) => {
+    const key = player?.type === 'engine' ? `engine:${player.name || 'katago'}` : player?.userId;
+    const confirmed = Boolean(scoring.confirmations?.[key]) || forced;
+    return `<div><span>${color} · ${h(player?.displayName || '—')}</span><b class="${confirmed ? 'confirmed' : ''}">${confirmed ? '✓ 已确认' : '等待确认'}</b></div>`;
+  }).join('');
+  $('confirmScore').disabled = ownConfirmed || forced || game.status !== 'scoring';
+  $('confirmScore').textContent = ownConfirmed ? '你已确认' : forced ? '结果已生效' : '确认结果';
+  $('rejectScore').classList.toggle('hidden', forced || ownConfirmed || game.status !== 'scoring');
+  $('closeScoreResult').classList.toggle('hidden', game.status === 'scoring');
+  $('scoreForceNote').textContent = forced
+    ? `这是本局第 ${scoring.adjudicationCount} 次 KataGo 裁决，已按后台规则强制结束。`
+    : `这是本局第 ${scoring.adjudicationCount} 次裁决；达到第 ${scoring.forcedAfter || goState.lobby.config.scoreForcedAfter || 3} 次后将不能拒绝。`;
+  if (!dialog.open) dialog.showModal();
 }
 
 function renderHistory(moves = [], events = []) {
@@ -429,6 +460,9 @@ function bindStaticControls() {
   $('retryAi').onclick = () => gameAction({ type: 'retry-ai' }, '重新请求 KataGo 落子…');
   $('acceptUndo').onclick = () => gameAction({ type: 'undo-response', accept: true }); $('declineUndo').onclick = () => gameAction({ type: 'undo-response', accept: false });
   $('retryScore').onclick = () => gameAction({ type: 'retry-score' }, '重新请求 KataGo 结算…');
+  $('confirmScore').onclick = () => gameAction({ type: 'score-confirm' }, '确认结算结果…');
+  $('rejectScore').onclick = () => confirm('拒绝本次结果并恢复棋局继续落子吗？') && gameAction({ type: 'score-reject' }, '恢复棋局…');
+  $('closeScoreResult').onclick = () => { goState.dismissedScoreId = goState.game?.id || null; $('scoreResultDialog').close(); };
   document.querySelectorAll('[data-shared-color]').forEach(button => button.onclick = () => { goState.sharedColor = button.dataset.sharedColor; document.querySelectorAll('[data-shared-color]').forEach(item => item.classList.toggle('active', item === button)); });
   $('sharedUndo').onclick = () => gameAction({ type: 'undo' }); $('sharedRedo').onclick = () => gameAction({ type: 'redo' }); $('sharedClear').onclick = () => confirm('确定清空共享棋盘吗？') && gameAction({ type: 'clear' }); $('sharedLock').onclick = () => gameAction({ type: 'lock', locked: !goState.game.shared.locked });
   document.querySelectorAll('[data-study-method]').forEach(button => button.onclick = () => { goState.study.method = button.dataset.studyMethod; document.querySelectorAll('[data-study-method]').forEach(item => item.classList.toggle('active', item === button)); renderStudy(); });

@@ -110,6 +110,7 @@
           <label class="setting-row"><span><strong>自动认输胜率</strong><small>0–1；默认 0.5 表示低于 50%</small></span><input id="goAiResignWinrateThreshold" type="number" min="0" max="1" step="0.01"></label>
           <label class="setting-row"><span><strong>连续低胜率回合</strong><small>默认 12 个机器人回合后自动认输</small></span><input id="goAiResignConsecutiveTurns" type="number" min="1" max="100"></label>
           <label class="setting-row"><span><strong>终局点目访问次数</strong><small>KataGo 终局判定使用，默认 160</small></span><input id="goScoreMaxVisits" type="number" min="1" max="100000"></label>
+          <label class="setting-row"><span><strong>强制接受裁决次数</strong><small>连续第几次 KataGo 结算后不可拒绝，默认 3</small></span><input id="goScoreForcedAfter" type="number" min="1" max="20"></label>
           <label class="setting-row"><span><strong>终局点目时间</strong><small>秒，默认 6</small></span><input id="goScoreMaxTime" type="number" min="0.05" max="120" step="0.05"></label>
           <label class="setting-row setting-row-textarea"><span><strong>机器人难度 JSON</strong><small>字段：id、name、description、maxVisits、maxTime、candidatePool；候选池越大越弱</small></span><textarea id="goAiProfiles" rows="12"></textarea></label>
         </div></details>

@@ -1,0 +1,113 @@
+.score-result-dialog {
+  width: min(560px, calc(100% - 24px));
+  border: 1px solid #d8b77580;
+  border-radius: 26px;
+  padding: 0;
+  background: linear-gradient(150deg, #182a20, #08110e 70%);
+  color: var(--go-text);
+  box-shadow: 0 35px 120px #000c, 0 0 60px #d8b77518;
+}
+
+.score-result-dialog::backdrop {
+  background: #010503e8;
+  backdrop-filter: blur(9px);
+}
+
+.score-result-inner {
+  text-align: center;
+  padding: 36px clamp(22px, 6vw, 50px);
+}
+
+.score-result-inner > small {
+  color: var(--go-gold);
+  letter-spacing: .18em;
+}
+
+.score-result-mark {
+  display: grid;
+  place-items: center;
+  width: 94px;
+  height: 94px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  font-size: 70px;
+  line-height: 1;
+  background: #0b0d0c;
+  color: #eef0e8;
+  box-shadow: 0 12px 35px #0009, 0 0 0 8px #ffffff08;
+}
+
+.score-result-mark.white-win {
+  background: #ece9dd;
+  color: #171b18;
+}
+
+.score-result-mark.draw {
+  background: linear-gradient(90deg, #111 50%, #eee 50%);
+  color: var(--go-gold);
+}
+
+.score-result-inner h2 {
+  font: 600 clamp(38px, 8vw, 60px)/1 Georgia, "Songti SC", serif;
+  margin: 14px 0 5px;
+}
+
+.score-result-margin {
+  font-size: 27px;
+  color: var(--go-jade);
+  font-weight: 700;
+}
+
+.score-result-inner > p {
+  color: var(--go-muted);
+}
+
+.score-confirmations {
+  display: grid;
+  gap: 8px;
+  margin: 22px 0;
+  text-align: left;
+}
+
+.score-confirmations > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 11px 13px;
+  border: 1px solid var(--go-line);
+  border-radius: 11px;
+  background: #07100d;
+}
+
+.score-confirmations b {
+  color: var(--go-muted);
+  font-size: 13px;
+}
+
+.score-confirmations b.confirmed {
+  color: var(--go-jade);
+}
+
+.score-result-actions {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 10px;
+}
+
+.score-result-actions button {
+  min-height: 46px;
+}
+
+.score-reject {
+  color: var(--go-gold) !important;
+}
+
+.score-force-note {
+  font-size: 12px !important;
+  margin-bottom: 0;
+}
+
+@media (max-width: 480px) {
+  .score-result-actions {
+    grid-template-columns: 1fr;
+  }
+}

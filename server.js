@@ -321,6 +321,7 @@ function sanitizeGoSettings(data) {
     goAiResignConsecutiveTurns: Math.round(safeNumberSetting(data.goAiResignConsecutiveTurns ?? current.goAiResignConsecutiveTurns ?? 12, 1, 100, '自动认输连续回合')),
     goScoreMaxVisits: Math.round(safeNumberSetting(data.goScoreMaxVisits ?? current.goScoreMaxVisits ?? 160, 1, 100000, '终局点目访问次数')),
     goScoreMaxTime: safeNumberSetting(data.goScoreMaxTime ?? current.goScoreMaxTime ?? 6, 0.05, 120, '终局点目时间'),
+    goScoreForcedAfter: Math.round(safeNumberSetting(data.goScoreForcedAfter ?? current.goScoreForcedAfter ?? 3, 1, 20, '强制裁决次数')),
     goKataGoBinary: absolutePath(data.goKataGoBinary, current.goKataGoBinary, 'KataGo 程序路径'),
     goKataGoModel: absolutePath(data.goKataGoModel, current.goKataGoModel, 'KataGo 模型路径'),
     goKataGoConfig: absolutePath(data.goKataGoConfig, current.goKataGoConfig, 'KataGo 配置路径'),
@@ -455,6 +456,8 @@ async function api(req, res, url) {
     else if (data.type === 'undo-request') game = goService.requestUndo(user, id);
     else if (data.type === 'undo-response') game = goService.respondUndo(user, id, Boolean(data.accept));
     else if (data.type === 'retry-score') game = goService.retryScoring(user, id);
+    else if (data.type === 'score-confirm') game = goService.respondScoring(user, id, true);
+    else if (data.type === 'score-reject') game = goService.respondScoring(user, id, false);
     else if (data.type === 'retry-ai') game = goService.retryEngine(user, id);
     else if (['setup', 'erase', 'undo', 'redo', 'clear', 'lock'].includes(data.type)) game = goService.sharedAction(user, id, data);
     else return json(res, 400, { error: '未知围棋操作' });
