@@ -542,7 +542,9 @@ async function api(req, res, url) {
     if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
     const conversationId = url.searchParams.get('conversationId') || 'lobby';
     if (!conversationFor(conversationId, user)) return json(res, 403, { error: '无权访问该聊天' });
-    return json(res, 200, { messages: state.messages.filter(message => message.conversationId === conversationId).slice(-Math.max(20, Number(state.settings.messageHistoryLimit) || 200)) });
+    const allMessages = state.messages.filter(message => message.conversationId === conversationId);
+    const limit = Math.max(1, Number(state.settings.messageHistoryLimit) || 200);
+    return json(res, 200, { messages: allMessages.slice(-limit), total: allMessages.length, limit });
   }
   if (url.pathname === '/api/messages' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; const data = await body(req); const conversationId = String(data.conversationId || 'lobby');
@@ -785,7 +787,7 @@ async function api(req, res, url) {
   if (gameSaveMatch && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessGames', '此账号不能使用小游戏')) return; const item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); return json(res, 200, { save: item ? { data: item.data, updatedAt: item.updatedAt } : null }); }
   if (gameSaveMatch && req.method === 'PUT') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'accessGames', '此账号不能使用小游戏')) return; const data = await body(req); const serialized = JSON.stringify(data.data); if (Buffer.byteLength(serialized) > Number(state.settings.maxGameSaveKB) * 1024) return json(res, 400, { error: `游戏存档超过 ${state.settings.maxGameSaveKB} KB 限制` }); let item = state.gameSaves.find(saveItem => saveItem.userId === user.id && saveItem.gameId === gameSaveMatch[1]); if (!item) { item = { id: crypto.randomUUID(), userId: user.id, gameId: gameSaveMatch[1], data: null, updatedAt: null }; state.gameSaves.push(item); } item.data = data.data; item.updatedAt = new Date().toISOString(); save(state); return json(res, 200, { save: { data: item.data, updatedAt: item.updatedAt } }); }
   if (url.pathname === '/api/settings' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { settings: state.settings }); }
-  if (url.pathname === '/api/chat-config' && req.method === 'GET') { if (!requireUser(req, res)) return; const { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } = state.settings; return json(res, 200, { settings: { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads } }); }
+  if (url.pathname === '/api/chat-config' && req.method === 'GET') { if (!requireUser(req, res)) return; const { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads, editWindowMinutes, messageHistoryLimit } = state.settings; return json(res, 200, { settings: { maxUploadMB, maxMessageLength, maxAttachmentsPerMessage, allowFileUploads, editWindowMinutes, messageHistoryLimit } }); }
   if (url.pathname === '/api/settings' && req.method === 'PATCH') {
     if (!requireUser(req, res, 'admin')) return;
     const data = await body(req);

@@ -216,7 +216,8 @@ function renderAssignmentTest(result, cases) {
   const status = result.success ? `<strong class="test-pass">测试通过 · ${result.passed}/${result.total}</strong>` : `<strong class="test-fail">测试未通过 · ${result.passed}/${result.total}</strong>`;
   const metrics = `<span>${Number(result.runtimeMs).toFixed(2)} ms</span><span>${formatMemory(result.memoryKB)}</span>`;
   const actualByTest = new Map((result.caseResults || []).map(item => [Number(item.test), item.actualRepr]));
-  const rows = cases.map(item => { const actual = actualByTest.has(item.number) ? actualByTest.get(item.number) : '执行中断，未得到返回值'; const actualLabel = actual === 'None' ? 'None（没有返回值）' : actual; return `<div class="test-case"><b>测试 ${item.number}</b><code>参数：${esc(JSON.stringify(item.args))}</code><code class="test-actual">实际返回：${esc(actualLabel)}</code><code>期望返回：${esc(JSON.stringify(item.expected))}</code></div>`; }).join('');
+  const revealWhitespace = value => String(value).replace(/ /g, '·').replace(/\t/g, '⇥').replace(/\n/g, '↵\n');
+  const rows = cases.map(item => { const actual = actualByTest.has(item.number) ? actualByTest.get(item.number) : '执行中断，未得到返回值'; const actualLabel = actual === 'None' ? 'None（没有返回值）' : revealWhitespace(actual); return `<div class="test-case"><b>测试 ${item.number}</b><code>参数：${esc(revealWhitespace(JSON.stringify(item.args)))}</code><code class="test-actual">实际返回：${esc(actualLabel)}</code><code>期望返回：${esc(revealWhitespace(JSON.stringify(item.expected)))}</code></div>`; }).join('');
   const error = result.error ? `<pre>${esc(result.error)}</pre>` : '';
   le('assignmentTestResult').innerHTML = `<div class="test-summary">${status}<div>${metrics}</div></div>${error}<div class="test-cases">${rows}</div>`;
 }
