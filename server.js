@@ -472,6 +472,9 @@ async function api(req, res, url) {
   if (goGameMatch && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return; const game = goService.gameFor(goGameMatch[1], user); return json(res, 200, { game: goService.gameView(game, user) });
   }
+  if (goGameMatch && req.method === 'DELETE') {
+    const user = requireUser(req, res); if (!user) return; return json(res, 200, { ok: true, deleted: goService.deleteGame(user, goGameMatch[1]) });
+  }
   if (url.pathname === '/api/go/studies' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; return json(res, 201, { study: goService.saveStudy(user, await body(req)) });
   }

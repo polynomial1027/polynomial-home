@@ -131,6 +131,25 @@ test('拒绝结算可继续下棋，第三次 KataGo 裁决按后台参数强制
   assert.throws(() => service.respondScoring(users[0], gameId, false), error => ['NOT_FOUND', 'INVALID_STATE', 'SCORE_FORCED'].includes(error.code));
 });
 
+test('参与者可删除进行中棋局和最近棋谱，旁观者不能删除', () => {
+  const { service, state, users } = fixture();
+  users[2].role = 'member';
+  const firstInvite = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'online', config: { boardSize: 9, colorChoice: 'creator_black', timeSystem: 'none' } });
+  const activeId = service.respondInvitation(users[1], firstInvite.id, 'accept').game.id;
+  assert.throws(() => service.deleteGame(users[2], activeId), error => error.code === 'FORBIDDEN');
+  assert.equal(service.deleteGame(users[1], activeId).wasActive, true);
+  assert.equal(state.goGames.some(game => game.id === activeId), false);
+  assert.equal(service.lobby(users[0]).games.some(game => game.id === activeId), false);
+
+  const secondInvite = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'online', config: { boardSize: 9, colorChoice: 'creator_black', timeSystem: 'none' } });
+  const recordId = service.respondInvitation(users[1], secondInvite.id, 'accept').game.id;
+  service.resign(users[1], recordId);
+  assert.equal(service.listRecords(users[0]).some(record => record.id === recordId), true);
+  assert.equal(service.deleteGame(users[0], recordId).wasActive, false);
+  assert.equal(service.listRecords(users[0]).some(record => record.id === recordId), false);
+  assert.equal(service.listRecords(users[1]).some(record => record.id === recordId), false);
+});
+
 test('共享棋盘允许双方自由摆棋、撤销和房主锁定', () => {
   const { service, state, users } = fixture();
   const invitation = service.createInvitation(users[0], { toUserId: users[1].id, mode: 'shared', config: { boardSize: 9 } });

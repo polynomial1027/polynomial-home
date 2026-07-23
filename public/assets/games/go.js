@@ -75,8 +75,8 @@ function renderLobby() {
     return `<div class="go-list-item"><div><strong>${incoming ? '收到' : '发出'} · ${h(formatMode(item.mode))}</strong><small>${h(person?.displayName || '已删除用户')} · ${item.config.boardSize} 路 · ${item.config.rules === 'japanese' ? '日本规则' : '中国规则'} · ${item.status === 'pending' ? '等待处理' : '已接受'}</small></div><div class="go-list-actions">${item.gameId ? `<button data-open-game="${item.gameId}" class="accept">进入</button>` : incoming ? `<button data-invite-action="accept" data-invite-id="${item.id}" class="accept">接受</button><button data-invite-action="decline" data-invite-id="${item.id}">拒绝</button>` : `<button data-invite-action="cancel" data-invite-id="${item.id}">取消</button>`}</div></div>`;
   }).join('');
   $('invitationList').innerHTML = invitationRows || '<div class="go-list-empty">暂时没有待处理邀请</div>';
-  $('activeGameList').innerHTML = games.map(game => `<div class="go-list-item"><div><strong>${h(formatMode(game.mode))} · ${h(formatStatus(game.status))}</strong><small>${game.config.boardSize} 路 · ${game.blackPlayer?.displayName || '协作'} / ${game.whitePlayer?.displayName || '棋盘'}${game.engineThinking ? ' · KataGo 思考中' : ''}</small></div><div class="go-list-actions"><button data-open-game="${game.id}" class="accept">继续</button></div></div>`).join('') || '<div class="go-list-empty">没有进行中的棋局</div>';
-  $('recordList').innerHTML = records.map(record => `<div class="go-list-item"><div><strong>${h(record.result || '已结束')} · ${h(formatMode(record.mode))}</strong><small>${record.config.boardSize} 路 · ${record.moveCount} 手 · ${new Date(record.endedAt).toLocaleDateString()}</small></div><div class="go-list-actions"><button data-open-game="${record.id}">回放</button>${capabilities.sgfExport ? `<a href="/api/go/games/${record.id}/sgf">SGF</a>` : ''}</div></div>`).join('') || '<div class="go-list-empty">还没有完成的棋谱</div>';
+  $('activeGameList').innerHTML = games.map(game => `<div class="go-list-item"><div><strong>${h(formatMode(game.mode))} · ${h(formatStatus(game.status))}</strong><small>${game.config.boardSize} 路 · ${game.blackPlayer?.displayName || '协作'} / ${game.whitePlayer?.displayName || '棋盘'}${game.engineThinking ? ' · KataGo 思考中' : ''}</small></div><div class="go-list-actions"><button data-open-game="${game.id}" class="accept">继续</button><button data-delete-game="${game.id}" data-game-active="true">删除</button></div></div>`).join('') || '<div class="go-list-empty">没有进行中的棋局</div>';
+  $('recordList').innerHTML = records.map(record => `<div class="go-list-item"><div><strong>${h(record.result || '已结束')} · ${h(formatMode(record.mode))}</strong><small>${record.config.boardSize} 路 · ${record.moveCount} 手 · ${new Date(record.endedAt).toLocaleDateString()}</small></div><div class="go-list-actions"><button data-open-game="${record.id}">回放</button>${capabilities.sgfExport ? `<a href="/api/go/games/${record.id}/sgf">SGF</a>` : ''}<button data-delete-game="${record.id}">删除</button></div></div>`).join('') || '<div class="go-list-empty">还没有完成的棋谱</div>';
   $('studyList').innerHTML = capabilities.study ? (studies.map(study => `<div class="go-list-item"><div><strong data-i18n-user>${h(study.title)}</strong><small>${study.boardSize} 路 · ${new Date(study.updatedAt).toLocaleString()}</small></div><div class="go-list-actions"><button data-open-study="${study.id}" class="accept">打开</button><button data-delete-study="${study.id}">删除</button></div></div>`).join('') || '<div class="go-list-empty">还没有保存研究棋谱</div>') : '<div class="go-list-empty">管理员尚未为此账号开放研究权限</div>';
   $('puzzleList').innerHTML = capabilities.puzzles ? (puzzles.map(puzzle => `<button class="puzzle-item" data-open-puzzle="${puzzle.id}"><span>${h(puzzle.difficulty)} · ${puzzle.boardSize} 路</span><strong>${h(puzzle.title)}</strong><p>${h(puzzle.objective)}</p></button>`).join('') || '<div class="go-list-empty">管理员尚未发布题目</div>') : '<div class="go-list-empty">管理员尚未为此账号开放题库权限</div>';
   const modePermission = { study: capabilities.study, puzzle: capabilities.puzzles, ai: capabilities.ai && config.ai.available, online: capabilities.multiplayer && capabilities.invite, shared: capabilities.multiplayer && capabilities.invite && capabilities.shared };
@@ -103,6 +103,15 @@ function bindDynamicLobbyActions() {
   });
   document.querySelectorAll('[data-open-study]').forEach(button => button.onclick = () => openStudy(button.dataset.openStudy));
   document.querySelectorAll('[data-delete-study]').forEach(button => button.onclick = async () => { if (!confirm('确定删除这份研究棋谱吗？')) return; await goApi(`/api/go/studies/${button.dataset.deleteStudy}`, { method: 'DELETE' }); await loadLobby(); });
+  document.querySelectorAll('[data-delete-game]').forEach(button => button.onclick = async () => {
+    const message = button.dataset.gameActive === 'true'
+      ? '确定删除这盘进行中的棋局吗？棋局会立即结束并从双方列表永久移除，无法恢复。'
+      : '确定永久删除这份棋谱吗？它会从双方的最近棋谱中移除，且无法恢复。';
+    if (!confirm(message)) return;
+    button.disabled = true;
+    try { await goApi(`/api/go/games/${button.dataset.deleteGame}`, { method: 'DELETE' }); await loadLobby(); }
+    catch (error) { alert(error.message); button.disabled = false; }
+  });
   document.querySelectorAll('[data-open-puzzle]').forEach(button => button.onclick = () => openPuzzle(button.dataset.openPuzzle));
 }
 
