@@ -8,7 +8,7 @@ const { promisify } = require('node:util');
 const { WebSocketServer } = require('ws');
 const Busboy = require('busboy');
 const httpProxy = require('http-proxy');
-const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser, dataDir } = require('./lib/store');
+const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser, updatePermissions, dataDir } = require('./lib/store');
 const { publicCourse, getAssignment, makeEvaluation, makeVisibleEvaluation } = require('./lib/python-course');
 const { localizeAnnouncement } = require('./lib/server-i18n');
 const { GoRuleError } = require('./lib/go-engine');
@@ -815,7 +815,7 @@ async function api(req, res, url) {
     target.username = username; target.displayName = displayName;
     if (typeof data.active === 'boolean') target.active = data.active;
     if (data.role === 'admin' || data.role === 'member') target.role = data.role;
-    if (data.permissions && typeof data.permissions === 'object') target.permissions = { ...defaultPermissions, ...target.permissions, ...Object.fromEntries(Object.keys(defaultPermissions).map(key => [key, Boolean(data.permissions[key])])) };
+    if (data.permissions && typeof data.permissions === 'object') target.permissions = updatePermissions(target.permissions, data.permissions);
     if (data.driveQuotaMB !== undefined) { const quota = Number(data.driveQuotaMB); if (!Number.isSafeInteger(quota) || quota < 0) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' }); target.driveQuotaMB = quota; }
     if (data.password) { if (String(data.password).length < 10) return json(res, 400, { error: '密码至少 10 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
