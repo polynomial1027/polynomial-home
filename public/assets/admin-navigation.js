@@ -8,7 +8,7 @@
       title: '账号管理',
       eyebrow: 'Accounts',
       description: '创建账号与管理已有用户',
-      nodes: [...document.querySelectorAll('.admin-layout > *')]
+      nodes: [document.querySelector('.admin-layout')]
     },
     { id: 'admin-announcements', title: '更新公告管理', node: document.querySelector('.announcement-manager') },
     { id: 'admin-settings', title: '功能参数设置', node: document.querySelector('#settingsForm') },
