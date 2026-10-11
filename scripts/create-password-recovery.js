@@ -31,5 +31,5 @@ const result = createRecoveryRequest(path.join(dataDir, 'password-recovery'), us
 console.log(`管理员账号：${user.username}`);
 console.log(`一次性恢复码：${result.code}`);
 console.log(`有效期至：${new Date(result.expiresAt).toLocaleString('zh-CN')}`);
-console.log('打开网站的 /recover-password.html，输入账号、恢复码和新密码。');
+console.log('打开网站的 /recover-password.html，输入账号、4 位恢复码和新密码。');
 console.log('恢复码使用一次后立即失效；重新运行本命令会使旧恢复码失效。');
