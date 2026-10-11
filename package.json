@@ -7,12 +7,14 @@
   "scripts": {
     "start": "node server.js",
     "recovery-code": "node scripts/create-password-recovery.js",
-    "check": "node --check server.js && node --check lib/store.js && node --check lib/password-recovery.js && node --check scripts/create-password-recovery.js && node --check lib/go-engine.js && node --check lib/go-service.js && node --check lib/katago.js && node --check lib/server-i18n.js && node --check lib/python-course.js && node --check lib/python-course-en.js && node --check public/assets/i18n.js && node --check public/assets/site.js && node --check public/assets/learning.js && node --check public/assets/games/match3.js && node --check public/assets/games/go.js && node --check public/assets/admin-permissions.js && node --check public/assets/admin-go.js",
+    "configure-gmail": "node scripts/configure-gmail.js",
+    "check": "node --check server.js && node --check lib/store.js && node --check lib/password-recovery.js && node --check lib/mailer.js && node --check scripts/create-password-recovery.js && node --check scripts/configure-gmail.js && node --check lib/go-engine.js && node --check lib/go-service.js && node --check lib/katago.js && node --check lib/server-i18n.js && node --check lib/python-course.js && node --check lib/python-course-en.js && node --check public/assets/i18n.js && node --check public/assets/site.js && node --check public/assets/learning.js && node --check public/assets/games/match3.js && node --check public/assets/games/go.js && node --check public/assets/admin-permissions.js && node --check public/assets/admin-go.js",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "busboy": "^1.6.0",
     "http-proxy": "^1.18.1",
+    "nodemailer": "^10.1.0",
     "ws": "^8.21.1"
   },
   "engines": {

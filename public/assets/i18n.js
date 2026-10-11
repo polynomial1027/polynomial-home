@@ -63,6 +63,13 @@
     ['进行中', 'Active'], ['已结束', 'Finished'], ['待处理邀请', 'Pending Invitations'], ['研究棋谱', 'Studies'], ['题目 / 作答', 'Problems / Attempts'], ['已就绪', 'Ready'], ['环境不完整', 'Environment Incomplete'], ['围棋中心', 'Go Center'], ['研究、题库、人机、联机与棋谱', 'Study, problems, AI, online play, and records'], ['进入围棋中心', 'Access Go Center'], ['KataGo 人机', 'KataGo AI'], ['还没有围棋题目', 'No Go problems yet'], ['确定删除这道围棋题目吗？', 'Delete this Go problem?'], ['确定永久删除这条问题反馈吗？', 'Permanently delete this feedback?']
   );
 
+  pairs.push(
+    ['账号或邮箱', 'Username or Email'], ['邮箱（选填）', 'Email (optional)'], ['邮箱', 'Email'],
+    ['可用于登录与接收恢复码，必须唯一', 'Used for login and recovery codes; must be unique'],
+    ['使用绑定邮箱接收 4 位恢复码；管理员也可以让恢复码直接显示在服务器屏幕上。恢复码有效 2 分钟。', 'Receive a 4-digit code at your linked email. Administrators can also show it on the server screen. Codes expire after 2 minutes.'],
+    ['发送恢复码到邮箱', 'Email Recovery Code'], ['请先填写账号或邮箱', 'Enter your username or email first'],
+    ['如果账号已绑定邮箱，恢复码很快会发送到邮箱', 'If the account has a linked email, a recovery code will arrive shortly']
+  );
   const translations = new Map(pairs);
   const preserveUnknownSelector = '.message,.message-quote,.attachments,.drive-row,.announcement-card,.admin-message-row,.player-chip,.author,.language-switcher,textarea,code,pre,input,[data-i18n-user]';
 

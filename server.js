@@ -8,13 +8,14 @@ const { promisify } = require('node:util');
 const { WebSocketServer } = require('ws');
 const Busboy = require('busboy');
 const httpProxy = require('http-proxy');
-const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeUser, updatePermissions, dataDir } = require('./lib/store');
+const { load, save, hashPassword, verifyPassword, defaultPermissions, normalizeEmail, normalizeUser, updatePermissions, dataDir } = require('./lib/store');
 const { publicCourse, getAssignment, makeEvaluation, makeVisibleEvaluation } = require('./lib/python-course');
 const { localizeAnnouncement } = require('./lib/server-i18n');
 const { GoRuleError } = require('./lib/go-engine');
 const { GoService } = require('./lib/go-service');
 const { KataGoManager } = require('./lib/katago');
-const { createRecoveryRequest, consumeRecoveryRequest } = require('./lib/password-recovery');
+const { createRecoveryRequest, consumeRecoveryRequest, requestFile: passwordRecoveryFile } = require('./lib/password-recovery');
+const { createMailer, loadMailerConfiguration } = require('./lib/mailer');
 
 const execFileAsync = promisify(execFile);
 
@@ -27,6 +28,7 @@ const state = load();
 const loginAttempts = new Map();
 const recoveryAttempts = new Map();
 const recoveryRequestAttempts = new Map();
+const emailRecoveryRequestAttempts = new Map();
 const recoveryRequestByUser = new Map();
 const feedbackAttempts = new Map();
 const userPresence = new Map();
@@ -39,6 +41,18 @@ const NOTEBOOK_CTL = '/usr/local/sbin/polynomial-notebookctl';
 const uploadDir = path.join(dataDir, 'uploads');
 const passwordRecoveryDir = path.join(dataDir, 'password-recovery');
 const passwordRecoveryTty = process.env.PASSWORD_RECOVERY_TTY || '/dev/tty1';
+const loadedMailer = loadMailerConfiguration(dataDir);
+let mailer = createMailer(loadedMailer.configuration);
+let mailerConfigModifiedAt = (() => { try { return fs.statSync(loadedMailer.configFile).mtimeMs; } catch { return 0; } })();
+const currentMailer = () => {
+  let modifiedAt = 0;
+  try { modifiedAt = fs.statSync(loadedMailer.configFile).mtimeMs; } catch {}
+  if (modifiedAt !== mailerConfigModifiedAt) {
+    mailer = createMailer(loadMailerConfiguration(dataDir).configuration);
+    mailerConfigModifiedAt = modifiedAt;
+  }
+  return mailer;
+};
 const requestLanguage = req => String(req.headers['accept-language'] || '').toLowerCase().startsWith('en') ? 'en' : 'zh';
 const clientAddress = req => {
   const remote = String(req.socket.remoteAddress || 'unknown');
@@ -101,6 +115,8 @@ const currentUser = req => {
   return session ? state.users.find(u => u.id === session.userId && u.active) : null;
 };
 const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, permissions: u.permissions, driveQuotaMB: u.driveQuotaMB, createdAt: u.createdAt });
+const adminUser = u => ({ ...publicUser(u), email: u.email || null });
+const validEmail = email => email === null || (email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
 const allowed = (user, permission) => user?.role === 'admin' || user?.permissions?.[permission] === true;
 const denyUnless = (res, user, permission, message = '此账号未开放该功能') => { if (allowed(user, permission)) return true; json(res, 403, { error: message }); return false; };
 const goWss = new WebSocketServer({ noServer: true });
@@ -385,8 +401,8 @@ async function api(req, res, url) {
     const ip = clientAddress(req);
     const recent = (loginAttempts.get(ip) || []).filter(t => Date.now() - t < 10 * 60_000);
     if (recent.length >= 10) return json(res, 429, { error: '尝试次数过多，请稍后再试' });
-    const data = await body(req);
-    const user = state.users.find(u => u.username.toLowerCase() === String(data.username || '').trim().toLowerCase() && u.active);
+    const data = await body(req), login = String(data.username || '').trim().toLowerCase();
+    const user = state.users.find(u => (u.username.toLowerCase() === login || u.email === login) && u.active);
     if (!user || !verifyPassword(String(data.password || ''), user.passwordHash)) {
       recent.push(Date.now()); loginAttempts.set(ip, recent);
       appendAudit({ action: 'login-failed', req, success: false, detail: String(data.username || '').trim() }); save(state);
@@ -405,12 +421,12 @@ async function api(req, res, url) {
     const recent = (recoveryAttempts.get(ip) || []).filter(time => Date.now() - time < 15 * 60_000);
     if (recent.length >= 10) return json(res, 429, { error: '尝试次数过多，请稍后再试' });
     recent.push(Date.now()); recoveryAttempts.set(ip, recent);
-    const data = await body(req), username = String(data.username || '').trim(), password = String(data.password || '');
-    const user = state.users.find(item => item.username.toLowerCase() === username.toLowerCase() && item.role === 'admin' && item.active);
+    const data = await body(req), login = String(data.username || '').trim().toLowerCase(), password = String(data.password || '');
+    const user = state.users.find(item => (item.username.toLowerCase() === login || item.email === login) && item.active);
     if (password.length < 4) return json(res, 400, { error: '密码至少 4 位' });
-    if (!user || !consumeRecoveryRequest(passwordRecoveryDir, username, data.code).ok) {
-      appendAudit({ action: 'password-recovery-failed', req, success: false, detail: username }); save(state);
-      return json(res, 400, { error: '恢复信息无效或已过期，请在服务器上重新生成恢复码' });
+    if (!user || !consumeRecoveryRequest(passwordRecoveryDir, user.username, data.code).ok) {
+      appendAudit({ action: 'password-recovery-failed', req, success: false, detail: login }); save(state);
+      return json(res, 400, { error: '恢复信息无效或已过期，请重新申请恢复码' });
     }
     user.passwordHash = hashPassword(password);
     state.sessions = state.sessions.filter(session => session.userId !== user.id);
@@ -433,10 +449,36 @@ async function api(req, res, url) {
         recoveryRequestByUser.set(user.id, now);
         appendAudit({ user, action: 'password-recovery-requested', req }); save(state);
       } catch (error) {
+        try { fs.unlinkSync(passwordRecoveryFile(passwordRecoveryDir, user.username)); } catch {}
         console.error('Password recovery display error:', error.message);
       }
     }
     return json(res, 200, { ok: true, message: '如果账号可以恢复，恢复码已显示在服务器电脑屏幕上' });
+  }
+  if (url.pathname === '/api/password-recovery/config' && req.method === 'GET') {
+    return json(res, 200, { emailEnabled: currentMailer().enabled });
+  }
+  if (url.pathname === '/api/password-recovery/email-request' && req.method === 'POST') {
+    const recoveryMailer = currentMailer();
+    if (!recoveryMailer.enabled) return json(res, 503, { error: '邮件恢复尚未配置完成' });
+    const ip = clientAddress(req), now = Date.now();
+    const recent = (emailRecoveryRequestAttempts.get(ip) || []).filter(time => now - time < 60 * 60_000);
+    if (recent.length >= 3) return json(res, 429, { error: '申请次数过多，请一小时后再试' });
+    recent.push(now); emailRecoveryRequestAttempts.set(ip, recent);
+    const data = await body(req), login = String(data.username || '').trim().toLowerCase();
+    const user = state.users.find(item => (item.username.toLowerCase() === login || item.email === login) && item.active && item.email);
+    if (user && now - (recoveryRequestByUser.get(user.id) || 0) >= 60_000) {
+      try {
+        const recovery = createRecoveryRequest(passwordRecoveryDir, user.username, { now });
+        await recoveryMailer.sendPasswordRecovery({ to: user.email, displayName: user.displayName, code: recovery.code, expiresAt: recovery.expiresAt });
+        recoveryRequestByUser.set(user.id, now);
+        appendAudit({ user, action: 'email-password-recovery-requested', req }); save(state);
+      } catch (error) {
+        try { fs.unlinkSync(passwordRecoveryFile(passwordRecoveryDir, user.username)); } catch {}
+        console.error('Password recovery email error:', error.message);
+      }
+    }
+    return json(res, 200, { ok: true, message: '如果账号已绑定邮箱，恢复码很快会发送到邮箱' });
   }
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const token = cookies(req).session;
@@ -894,30 +936,34 @@ async function api(req, res, url) {
     return json(res, 200, { settings: state.settings });
   }
   if (url.pathname === '/api/users' && req.method === 'GET') {
-    if (!requireUser(req, res, 'admin')) return; return json(res, 200, { users: state.users.map(publicUser) });
+    if (!requireUser(req, res, 'admin')) return; return json(res, 200, { users: state.users.map(adminUser) });
   }
   if (url.pathname === '/api/users' && req.method === 'POST') {
     if (!requireUser(req, res, 'admin')) return;
-    const data = await body(req); const username = String(data.username || '').trim(); const password = String(data.password || '');
+    const data = await body(req); const username = String(data.username || '').trim(); const password = String(data.password || ''); const email = normalizeEmail(data.email);
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
     if (password.length < 4) return json(res, 400, { error: '密码至少 4 位' });
+    if (!validEmail(email)) return json(res, 400, { error: '邮箱格式不正确' });
     if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) return json(res, 409, { error: '账号已存在' });
-    const user = normalizeUser({ id: crypto.randomUUID(), username, displayName: String(data.displayName || username).trim().slice(0, 30), role: data.role === 'admin' ? 'admin' : 'member', active: true, passwordHash: hashPassword(password), permissions: { ...defaultPermissions, ...(data.permissions || {}) }, driveQuotaMB: Number(data.driveQuotaMB) || 1024, createdAt: new Date().toISOString() });
-    state.users.push(user); save(state); return json(res, 201, { user: publicUser(user) });
+    if (email && state.users.some(u => u.email === email)) return json(res, 409, { error: '邮箱已被其他账号使用' });
+    const user = normalizeUser({ id: crypto.randomUUID(), username, email, displayName: String(data.displayName || username).trim().slice(0, 30), role: data.role === 'admin' ? 'admin' : 'member', active: true, passwordHash: hashPassword(password), permissions: { ...defaultPermissions, ...(data.permissions || {}) }, driveQuotaMB: Number(data.driveQuotaMB) || 1024, createdAt: new Date().toISOString() });
+    state.users.push(user); save(state); return json(res, 201, { user: adminUser(user) });
   }
   const match = url.pathname.match(/^\/api\/users\/([^/]+)$/);
   if (match && req.method === 'PATCH') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
     const target = state.users.find(u => u.id === match[1]); if (!target) return json(res, 404, { error: '用户不存在' });
     const data = await body(req), previouslyHadGo = allowed(target, 'accessGames') && allowed(target, 'accessGo');
-    const username = data.username === undefined ? target.username : String(data.username).trim(); const displayName = data.displayName === undefined ? target.displayName : String(data.displayName).trim().slice(0, 30);
+    const username = data.username === undefined ? target.username : String(data.username).trim(); const displayName = data.displayName === undefined ? target.displayName : String(data.displayName).trim().slice(0, 30); const email = data.email === undefined ? target.email : normalizeEmail(data.email);
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
     if (!displayName) return json(res, 400, { error: '显示名称不能为空' });
+    if (!validEmail(email)) return json(res, 400, { error: '邮箱格式不正确' });
     if (state.users.some(user => user.id !== target.id && user.username.toLowerCase() === username.toLowerCase())) return json(res, 409, { error: '账号已存在' });
+    if (email && state.users.some(user => user.id !== target.id && user.email === email)) return json(res, 409, { error: '邮箱已被其他账号使用' });
     const removingAdmin = target.role === 'admin' && (data.role === 'member' || data.active === false); const activeAdmins = state.users.filter(user => user.role === 'admin' && user.active);
     if (target.id === admin.id && (data.active === false || data.role === 'member')) return json(res, 400, { error: '不能停用或降级当前管理员账号' });
     if (removingAdmin && activeAdmins.length <= 1) return json(res, 400, { error: '必须保留至少一个启用的管理员' });
-    target.username = username; target.displayName = displayName;
+    target.username = username; target.displayName = displayName; target.email = email;
     if (typeof data.active === 'boolean') target.active = data.active;
     if (data.role === 'admin' || data.role === 'member') target.role = data.role;
     if (data.permissions && typeof data.permissions === 'object') target.permissions = updatePermissions(target.permissions, data.permissions);
@@ -926,7 +972,7 @@ async function api(req, res, url) {
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
     if (!target.active || !allowed(target, 'accessNotebook')) { closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); }
     if (previouslyHadGo && (!target.active || !allowed(target, 'accessGames') || !allowed(target, 'accessGo'))) { goService.markPresence(target.id, false); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'go access disabled'); }); }
-    save(state); return json(res, 200, { user: publicUser(target) });
+    save(state); return json(res, 200, { user: adminUser(target) });
   }
   if (match && req.method === 'DELETE') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return; const index = state.users.findIndex(user => user.id === match[1]); if (index < 0) return json(res, 404, { error: '用户不存在' }); const target = state.users[index];
@@ -1096,6 +1142,8 @@ setInterval(() => { if (pruneFeedback()) save(state); }, 3_600_000).unref();
 server.listen(PORT, HOST, () => {
   console.log(`Polynomial Server: http://${HOST}:${PORT}`);
   if ((process.env.ADMIN_PASSWORD || 'change-me-now') === 'change-me-now') console.warn('警告：请在首次部署前设置 ADMIN_PASSWORD。');
+  if (mailer.enabled) mailer.verify().then(() => console.log('SMTP mailer: ready')).catch(error => console.error('SMTP mailer verification failed:', error.message));
+  else console.log('SMTP mailer: not configured');
   Promise.all(state.users.map(async user => {
     try { const status = await notebookCtl('status', user.id); if (status.running) notebookActivity.set(user.id, Date.now()); }
     catch (error) { console.error('Notebook status bootstrap error:', error.message); }
