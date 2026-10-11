@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { defaultPermissions, normalizeEmail, normalizeUser, updatePermissions } = require('../lib/store');
+const { defaultPermissions, normalizeUser, updatePermissions } = require('../lib/store');
 
 test('只更新明确提交的权限，不会把未提交的围棋权限重置为 false', () => {
   const existing = { ...defaultPermissions, accessGo: true, goAi: true, goShared: false };
@@ -11,12 +11,6 @@ test('只更新明确提交的权限，不会把未提交的围棋权限重置�
   assert.equal(updated.accessGo, true);
   assert.equal(updated.goAi, true);
   assert.equal(updated.goShared, false);
-});
-
-test('邮箱统一为小写并兼容尚未绑定邮箱的旧账号', () => {
-  assert.equal(normalizeEmail('  User.Name@Gmail.COM '), 'user.name@gmail.com');
-  assert.equal(normalizeEmail(''), null);
-  assert.equal(normalizeUser({}).email, null);
 });
 
 test('忽略未知权限和非布尔值，兼容旧用户并保留零 MB 网盘额度', () => {
@@ -39,5 +33,4 @@ test('管理页面覆盖全部权限字段，权限脚本负责额度与保存�
   }
   assert.match(script, /refreshAndFillUser/);
   assert.match(script, /saved\.driveQuotaMB !== quota/);
-  assert.match(html, /id=["']editEmail["']/);
 });

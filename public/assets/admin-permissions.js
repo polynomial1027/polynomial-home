@@ -62,7 +62,6 @@ async function savePermissions(event) {
   const permissions = Object.fromEntries([...document.querySelectorAll('[data-permission]')].map(input => [input.dataset.permission, input.checked]));
   const payload = {
     username: document.querySelector('#editUsername').value,
-    email: document.querySelector('#editEmail').value,
     displayName: document.querySelector('#editDisplayName').value,
     role: document.querySelector('#editRole').value,
     active: document.querySelector('#editActive').value === 'true',

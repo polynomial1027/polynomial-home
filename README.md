@@ -72,30 +72,6 @@ POLYNOMIAL_DATA_DIR=/var/lib/polynomial-server npm run recovery-code -- --userna
 
 随后打开 `/recover-password.html`，输入管理员账号、恢复码和新密码。新密码至少 4 位，不限制字符组合；重置成功后，该账号的已有登录会话全部失效。
 
-### Gmail 邮箱登录与恢复
-
-账号可以绑定唯一邮箱，登录框同时接受用户名或邮箱。管理员在后台创建或修改账号时填写邮箱。配置 Gmail SMTP 后，恢复页面可以把 4 位恢复码发到绑定邮箱；服务器屏幕恢复仍作为管理员备用方式。
-
-推荐在服务器本机运行安全配置向导；应用专用密码输入时不会显示，连接验证成功后才会保存：
-
-```bash
-cd /var/www/polynomial-home
-POLYNOMIAL_DATA_DIR=/var/lib/polynomial-server npm run configure-gmail
-```
-
-向导把配置以 `0600` 权限保存到数据目录的 `smtp-config.json`，网站会自动重新读取，不需要重启。也可以改为在 `/etc/polynomial-server.env` 中配置：
-
-```ini
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=polynomial1027@gmail.com
-SMTP_PASSWORD=Google两步验证生成的16位应用专用密码
-MAIL_FROM=polynomial1027@gmail.com
-```
-
-应用专用密码只保存在服务器私有配置中，不得提交到 Git。配置完成后，从恢复页面发送一封测试邮件。
-
 测试覆盖围棋提子、禁入、劫、让子、数目、SGF、邀请联机、悔棋、共享棋盘、题库校验和 KataGo 调用流程。发布前还应按部署文档执行登录、WebSocket、反馈和真实 KataGo 冒烟检查。
 
 ## 安全要点
