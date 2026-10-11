@@ -444,6 +444,10 @@ summary:focus-visible {
   .brand {
     font-size: 18px;
   }
+  nav {
+    gap: 12px;
+    white-space: nowrap;
+  }
   .brand small,
   nav span {
     display: none;
@@ -467,13 +471,13 @@ summary:focus-visible {
     gap: 14px;
   }
   .atlas-report {
-    order: 0;
+    order: 1;
     width: 100%;
     display: flex;
     flex-direction: column;
   }
   .wish-editor {
-    order: 1;
+    order: 0;
     width: 100%;
   }
   .report-top {
@@ -521,13 +525,7 @@ summary:focus-visible {
     flex-basis: 100%;
   }
   .wish-editor form {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 14px;
-  }
-  .editor-heading,
-  .budget-editor {
-    grid-column: 1/-1;
+    display: block;
   }
   fieldset {
     min-width: 0;
