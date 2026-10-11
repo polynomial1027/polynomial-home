@@ -956,7 +956,18 @@ async function proxyNotebookHttp(req, res) {
 
 function staticFile(req, res, url) {
   const clean = url.pathname === '/' ? '/index.html' : url.pathname;
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/');
+  const calculatorRoot = '/genshin-calculator';
+  const isCalculatorPath = clean === calculatorRoot || clean.startsWith(`${calculatorRoot}/`);
+  if (isCalculatorPath && !currentUser(req)) {
+    const next = clean === calculatorRoot ? `${calculatorRoot}/` : `${clean}${url.search}`;
+    res.writeHead(302, { Location: `/login.html?next=${encodeURIComponent(next)}`, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  if (clean === calculatorRoot) {
+    res.writeHead(308, { Location: `${calculatorRoot}/`, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }
