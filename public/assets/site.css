@@ -299,6 +299,24 @@ textarea {
   text-align: center;
   font-size: 14px;
 }
+.recovery-request-button {
+  width: 100%;
+}
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
 .notice.success {
   color: var(--accent2);
 }

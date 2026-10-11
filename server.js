@@ -14,7 +14,7 @@ const { localizeAnnouncement } = require('./lib/server-i18n');
 const { GoRuleError } = require('./lib/go-engine');
 const { GoService } = require('./lib/go-service');
 const { KataGoManager } = require('./lib/katago');
-const { consumeRecoveryRequest } = require('./lib/password-recovery');
+const { createRecoveryRequest, consumeRecoveryRequest } = require('./lib/password-recovery');
 
 const execFileAsync = promisify(execFile);
 
@@ -26,6 +26,8 @@ const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nest
 const state = load();
 const loginAttempts = new Map();
 const recoveryAttempts = new Map();
+const recoveryRequestAttempts = new Map();
+const recoveryRequestByUser = new Map();
 const feedbackAttempts = new Map();
 const userPresence = new Map();
 const notebookActivity = new Map();
@@ -36,6 +38,7 @@ const assignmentTestPasses = new Map();
 const NOTEBOOK_CTL = '/usr/local/sbin/polynomial-notebookctl';
 const uploadDir = path.join(dataDir, 'uploads');
 const passwordRecoveryDir = path.join(dataDir, 'password-recovery');
+const passwordRecoveryTty = process.env.PASSWORD_RECOVERY_TTY || '/dev/tty1';
 const requestLanguage = req => String(req.headers['accept-language'] || '').toLowerCase().startsWith('en') ? 'en' : 'zh';
 const clientAddress = req => {
   const remote = String(req.socket.remoteAddress || 'unknown');
@@ -55,6 +58,22 @@ const appendAudit = ({ user = null, action, req, success = true, detail = '' }) 
 };
 const touchPresence = (user, req) => {
   if (user) userPresence.set(user.id, { lastSeenAt: new Date().toISOString(), address: clientAddress(req), userAgent: String(req.headers['user-agent'] || '').slice(0, 500) });
+};
+const showRecoveryCodeOnServer = (username, code, expiresAt) => {
+  if (!/^\/dev\/tty\d+$/.test(passwordRecoveryTty)) throw new Error('PASSWORD_RECOVERY_TTY 必须是本机文字控制台设备');
+  const expires = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(expiresAt));
+  const notice = [
+    '', '',
+    '============================================================',
+    '  POLYNOMIAL SERVER · 管理员密码恢复',
+    `  管理员账号：${username}`,
+    `  一次性恢复码：${code}`,
+    `  有效期至（北京时间）：${expires}`,
+    '  请在手机恢复页面输入；使用一次后立即失效。',
+    '============================================================',
+    ''
+  ].join('\n');
+  fs.appendFileSync(passwordRecoveryTty, notice, 'utf8');
 };
 fs.mkdirSync(uploadDir, { recursive: true });
 const driveDir = path.join(dataDir, 'drive');
@@ -399,6 +418,25 @@ async function api(req, res, url) {
     goWss.clients.forEach(client => { if (client.user?.id === user.id) client.close(4003, 'password changed'); });
     appendAudit({ user, action: 'password-recovered', req }); save(state);
     return json(res, 200, { ok: true });
+  }
+  if (url.pathname === '/api/password-recovery/request' && req.method === 'POST') {
+    const ip = clientAddress(req), now = Date.now();
+    const recent = (recoveryRequestAttempts.get(ip) || []).filter(time => now - time < 60 * 60_000);
+    if (recent.length >= 3) return json(res, 429, { error: '申请次数过多，请一小时后再试' });
+    recent.push(now); recoveryRequestAttempts.set(ip, recent);
+    const data = await body(req), username = String(data.username || '').trim();
+    const user = state.users.find(item => item.username.toLowerCase() === username.toLowerCase() && item.role === 'admin' && item.active);
+    if (user && now - (recoveryRequestByUser.get(user.id) || 0) >= 60_000) {
+      try {
+        const recovery = createRecoveryRequest(passwordRecoveryDir, user.username, { now });
+        showRecoveryCodeOnServer(user.username, recovery.code, recovery.expiresAt);
+        recoveryRequestByUser.set(user.id, now);
+        appendAudit({ user, action: 'password-recovery-requested', req }); save(state);
+      } catch (error) {
+        console.error('Password recovery display error:', error.message);
+      }
+    }
+    return json(res, 200, { ok: true, message: '如果账号可以恢复，恢复码已显示在服务器电脑屏幕上' });
   }
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const token = cookies(req).session;
