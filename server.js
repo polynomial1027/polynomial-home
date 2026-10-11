@@ -14,6 +14,7 @@ const { localizeAnnouncement } = require('./lib/server-i18n');
 const { GoRuleError } = require('./lib/go-engine');
 const { GoService } = require('./lib/go-service');
 const { KataGoManager } = require('./lib/katago');
+const { consumeRecoveryRequest } = require('./lib/password-recovery');
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +25,7 @@ const nestedPublicDir = path.join(__dirname, 'public');
 const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nestedPublicDir : __dirname;
 const state = load();
 const loginAttempts = new Map();
+const recoveryAttempts = new Map();
 const feedbackAttempts = new Map();
 const userPresence = new Map();
 const notebookActivity = new Map();
@@ -33,6 +35,7 @@ const learningLastRun = new Map();
 const assignmentTestPasses = new Map();
 const NOTEBOOK_CTL = '/usr/local/sbin/polynomial-notebookctl';
 const uploadDir = path.join(dataDir, 'uploads');
+const passwordRecoveryDir = path.join(dataDir, 'password-recovery');
 const requestLanguage = req => String(req.headers['accept-language'] || '').toLowerCase().startsWith('en') ? 'en' : 'zh';
 const clientAddress = req => {
   const remote = String(req.socket.remoteAddress || 'unknown');
@@ -377,6 +380,25 @@ async function api(req, res, url) {
     save(state);
     res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''}`);
     return json(res, 200, { user: publicUser(user) });
+  }
+  if (url.pathname === '/api/password-recovery' && req.method === 'POST') {
+    const ip = clientAddress(req);
+    const recent = (recoveryAttempts.get(ip) || []).filter(time => Date.now() - time < 15 * 60_000);
+    if (recent.length >= 10) return json(res, 429, { error: '尝试次数过多，请稍后再试' });
+    recent.push(Date.now()); recoveryAttempts.set(ip, recent);
+    const data = await body(req), username = String(data.username || '').trim(), password = String(data.password || '');
+    const user = state.users.find(item => item.username.toLowerCase() === username.toLowerCase() && item.role === 'admin' && item.active);
+    if (password.length < 4) return json(res, 400, { error: '密码至少 4 位' });
+    if (!user || !consumeRecoveryRequest(passwordRecoveryDir, username, data.code).ok) {
+      appendAudit({ action: 'password-recovery-failed', req, success: false, detail: username }); save(state);
+      return json(res, 400, { error: '恢复信息无效或已过期，请在服务器上重新生成恢复码' });
+    }
+    user.passwordHash = hashPassword(password);
+    state.sessions = state.sessions.filter(session => session.userId !== user.id);
+    wss.clients.forEach(client => { if (client.user?.id === user.id) client.close(4003, 'password changed'); });
+    goWss.clients.forEach(client => { if (client.user?.id === user.id) client.close(4003, 'password changed'); });
+    appendAudit({ user, action: 'password-recovered', req }); save(state);
+    return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const token = cookies(req).session;
@@ -840,7 +862,7 @@ async function api(req, res, url) {
     if (!requireUser(req, res, 'admin')) return;
     const data = await body(req); const username = String(data.username || '').trim(); const password = String(data.password || '');
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
-    if (password.length < 10) return json(res, 400, { error: '密码至少 10 位' });
+    if (password.length < 4) return json(res, 400, { error: '密码至少 4 位' });
     if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) return json(res, 409, { error: '账号已存在' });
     const user = normalizeUser({ id: crypto.randomUUID(), username, displayName: String(data.displayName || username).trim().slice(0, 30), role: data.role === 'admin' ? 'admin' : 'member', active: true, passwordHash: hashPassword(password), permissions: { ...defaultPermissions, ...(data.permissions || {}) }, driveQuotaMB: Number(data.driveQuotaMB) || 1024, createdAt: new Date().toISOString() });
     state.users.push(user); save(state); return json(res, 201, { user: publicUser(user) });
@@ -862,7 +884,7 @@ async function api(req, res, url) {
     if (data.role === 'admin' || data.role === 'member') target.role = data.role;
     if (data.permissions && typeof data.permissions === 'object') target.permissions = updatePermissions(target.permissions, data.permissions);
     if (data.driveQuotaMB !== undefined) { const quota = Number(data.driveQuotaMB); if (!Number.isSafeInteger(quota) || quota < 0) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' }); target.driveQuotaMB = quota; }
-    if (data.password) { if (String(data.password).length < 10) return json(res, 400, { error: '密码至少 10 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
+    if (data.password) { if (String(data.password).length < 4) return json(res, 400, { error: '密码至少 4 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
     if (!target.active || !allowed(target, 'accessNotebook')) { closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); }
     if (previouslyHadGo && (!target.active || !allowed(target, 'accessGames') || !allowed(target, 'accessGo'))) { goService.markPresence(target.id, false); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'go access disabled'); }); }
@@ -896,7 +918,7 @@ async function proxyNotebookHttp(req, res) {
 
 function staticFile(req, res, url) {
   const clean = url.pathname === '/' ? '/index.html' : url.pathname;
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|chat|admin|drive|learning|python)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/');
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/');
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }

@@ -261,7 +261,7 @@ sudo nano /etc/polynomial-server.env
 
 必须修改：
 
-- `ADMIN_PASSWORD`：首次创建全新数据时使用的强密码。
+- `ADMIN_PASSWORD`：首次创建全新数据时使用，至少 4 位、不限制字符组合；公网管理员仍建议使用更长的密码。
 - `COOKIE_SECURE=true`：公网 HTTPS 必须为 `true`。
 - 三个 `KATAGO_*` 路径：若使用文档默认目录可保持不变。
 

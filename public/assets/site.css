@@ -280,6 +280,28 @@ textarea {
 .auth-card h1 {
   margin-top: 0;
 }
+.auth-help,
+.auth-footnote {
+  color: var(--muted);
+}
+.auth-footnote {
+  margin: 18px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.auth-footnote code {
+  color: var(--accent2);
+}
+.auth-link {
+  display: block;
+  margin-top: 16px;
+  color: var(--accent);
+  text-align: center;
+  font-size: 14px;
+}
+.notice.success {
+  color: var(--accent2);
+}
 .field {
   display: grid;
   gap: 7px;

@@ -35,7 +35,7 @@ npm ci
 npm run check
 npm test
 ADMIN_USERNAME=polynomial \
-ADMIN_PASSWORD='请替换为至少16位强密码' \
+ADMIN_PASSWORD='请替换为至少4位密码' \
 HOST=127.0.0.1 PORT=3000 \
 npm start
 ```
@@ -58,6 +58,17 @@ npm start
 npm run check
 npm test
 ```
+
+## 管理员密码恢复
+
+网站不保存明文密码，也没有邮件服务。管理员忘记密码时，在服务器本机生成一个 15 分钟有效、只能使用一次的恢复码：
+
+```bash
+cd /var/www/polynomial-home
+POLYNOMIAL_DATA_DIR=/var/lib/polynomial-server npm run recovery-code -- --username polynomial
+```
+
+随后打开 `/recover-password.html`，输入管理员账号、恢复码和新密码。新密码至少 4 位，不限制字符组合；重置成功后，该账号的已有登录会话全部失效。
 
 测试覆盖围棋提子、禁入、劫、让子、数目、SGF、邀请联机、悔棋、共享棋盘、题库校验和 KataGo 调用流程。发布前还应按部署文档执行登录、WebSocket、反馈和真实 KataGo 冒烟检查。
 
