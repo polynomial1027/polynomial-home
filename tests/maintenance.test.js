@@ -26,7 +26,7 @@ test('safe cleanup removes expired sessions only', () => {
 test('manual AI maintenance shares quota and records executed action', async () => {
   const state = { settings: { ...settings }, assistantUsage: [], assistantReviews: [], sessions: [{ token: 'expired', expiresAt: '2020-01-01T00:00:00Z' }] };
   const report = { day: '2026-10-12', loginSuccess: 1, loginFailed: 0, suspicious: [], systemLogin: { status: 'unavailable', accepted: 0, failed: 0 }, memory: { totalMB: 1024, freeMB: 512 }, disk: null, loadAverage: [0, 0, 0], uptimeHours: 24, expiredSessions: 1 };
-  const review = await runReview({ state, save: () => {}, user: { id: 'admin' }, key: 'test-key', model: 'deepseek-chat', report, complete: async payload => {
+  const review = await runReview({ state, save: () => {}, user: { id: 'admin' }, key: 'test-key', model: 'deepseek-flash', report, complete: async payload => {
     assert.equal(payload.jsonMode, true);
     return { content: JSON.stringify({ summary: '有一个过期会话，建议清理。', risk: 'normal', actions: ['cleanup_expired_sessions'] }), tokens: 120 };
   } });

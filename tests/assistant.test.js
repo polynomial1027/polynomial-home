@@ -42,7 +42,7 @@ test('provider adapter sends bounded chat completion and reads reported usage', 
     req.on('data', chunk => { raw += chunk; });
     req.on('end', () => {
       const payload = JSON.parse(raw);
-      assert.equal(payload.model, 'deepseek-chat');
+      assert.equal(payload.model, 'deepseek-flash');
       assert.equal(payload.max_tokens, 128);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ choices: [{ message: { content: '测试回答' } }], usage: { total_tokens: 42 } }));
@@ -50,7 +50,7 @@ test('provider adapter sends bounded chat completion and reads reported usage', 
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const result = await assistant.complete({ key: 'test-key', model: 'deepseek-chat', messages: [{ role: 'user', content: '你好' }], maxOutput: 128, endpoint: `http://127.0.0.1:${server.address().port}/chat/completions` });
+    const result = await assistant.complete({ key: 'test-key', model: 'deepseek-flash', messages: [{ role: 'user', content: '你好' }], maxOutput: 128, endpoint: `http://127.0.0.1:${server.address().port}/chat/completions` });
     assert.deepEqual(result, { content: '测试回答', tokens: 42 });
   } finally { await new Promise(resolve => server.close(resolve)); }
 });

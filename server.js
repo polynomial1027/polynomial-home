@@ -16,6 +16,8 @@ const { GoService } = require('./lib/go-service');
 const { KataGoManager } = require('./lib/katago');
 const { createRecoveryRequest, consumeRecoveryRequest } = require('./lib/password-recovery');
 const assistant = require('./lib/assistant');
+const chatService = require('./lib/chat-service');
+const { priceWindow, safeOffPeakStart } = require('./lib/pricing');
 const { generateReport } = require('./lib/health');
 const { runReview } = require('./lib/maintenance');
 
@@ -28,8 +30,9 @@ const nestedPublicDir = path.join(__dirname, 'public');
 const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nestedPublicDir : __dirname;
 const state = load();
 const assistantKey = process.env.DEEPSEEK_API_KEY || '';
-const assistantModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const assistantModel = process.env.DEEPSEEK_MODEL || 'deepseek-flash';
 let maintenanceReviewRunning = false;
+let queuedChatRunning = false;
 async function performMaintenanceReview(user, source = 'manual') {
   if (maintenanceReviewRunning) throw new Error('已有 AI 巡检正在运行');
   maintenanceReviewRunning = true;
@@ -477,7 +480,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
-    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), model: assistantModel, limits: assistant.limits(state, user), usage: assistant.usage(state, user.id) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), model: assistantModel, pricing: priceWindow(new Date(), assistantModel), limits: assistant.limits(state, user), usage: assistant.usage(state, user.id), queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
   }
   if (url.pathname === '/api/workspace/planner' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
@@ -502,23 +505,25 @@ async function api(req, res, url) {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessAssistant')) return;
     if (!state.settings.assistantEnabled || !assistantKey) return json(res, 503, { error: 'AI 服务尚未启用或配置 API 密钥' });
-    const data = await body(req), message = String(data.message || '').trim();
-    if (!message || message.length > 2000) return json(res, 400, { error: '消息需为 1–2000 字' });
-    const recent = state.assistantChats.filter(item => item.userId === user.id).slice(-8);
-    const messages = [{ role: 'system', content: '你是 Polynomial Server 的个人助理。用简洁中文回答。你没有服务器命令、邮箱或日历工具；不要声称已经执行操作。' }, ...recent.map(item => ({ role: item.role, content: item.content })), { role: 'user', content: message }];
-    const maxOutput = Math.max(1, Math.min(4096, Number(state.settings.assistantMaxOutputTokens || 512)));
-    const reservation = assistant.reserve(state, save, user, assistant.estimateReservation(messages, maxOutput));
-    try {
-      const result = await assistant.complete({ key: assistantKey, model: assistantModel, messages, maxOutput });
-      assistant.finish(state, save, reservation, result.tokens || reservation.tokens, 'completed');
-      state.assistantChats.push({ id: crypto.randomUUID(), userId: user.id, role: 'user', content: message, at: new Date().toISOString() }, { id: crypto.randomUUID(), userId: user.id, role: 'assistant', content: result.content, at: new Date().toISOString() });
-      state.assistantChats = state.assistantChats.slice(-3000); save(state);
-      return json(res, 200, { reply: result.content, usage: assistant.usage(state, user.id) });
-    } catch (error) { assistant.finish(state, save, reservation, 0, 'failed'); return json(res, 502, { error: error.message }); }
+    const data = await body(req), message = chatService.validateMessage(data.message);
+    const window = priceWindow(new Date(), assistantModel);
+    if (window.peak && data.sendMode !== 'now') {
+      const queued = chatService.queueChat(state, save, user, message);
+      return json(res, 202, { queued, pricing: window });
+    }
+    try { const reply = await chatService.sendChat({ state, save, user, value: message, key: assistantKey, model: assistantModel }); return json(res, 200, { reply, usage: assistant.usage(state, user.id), pricing: window }); }
+    catch (error) { return json(res, error.code === 'AI_LIMIT' ? 429 : 502, { error: error.message }); }
+  }
+  const queuedChatMatch = url.pathname.match(/^\/api\/workspace\/assistant\/queue\/([a-f0-9-]+)$/);
+  if (queuedChatMatch && req.method === 'DELETE') {
+    const user = requireUser(req, res); if (!user) return;
+    const index = state.assistantQueuedChats.findIndex(item => item.id === queuedChatMatch[1] && item.userId === user.id && item.status === 'pending');
+    if (index < 0) return json(res, 404, { error: '排队消息不存在或已开始发送' });
+    state.assistantQueuedChats.splice(index, 1); save(state); return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/admin/assistant' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return;
-    return json(res, 200, { settings: Object.fromEntries(Object.entries(state.settings).filter(([key]) => key.startsWith('assistant'))), configured: Boolean(assistantKey), model: assistantModel, globalUsage: assistant.usage(state), users: state.users.map(user => ({ id: user.id, username: user.username, displayName: user.displayName, role: user.role, allowed: allowed(user, 'accessAssistant'), limits: assistant.limits(state, user).user, overrides: user.assistantLimits || {}, usage: assistant.usage(state, user.id) })), reports: state.healthReports.slice(0, 14), reviews: state.assistantReviews.slice(0, 14), reviewRunning: maintenanceReviewRunning });
+    return json(res, 200, { settings: Object.fromEntries(Object.entries(state.settings).filter(([key]) => key.startsWith('assistant'))), configured: Boolean(assistantKey), model: assistantModel, pricing: priceWindow(new Date(), assistantModel), queuedCount: state.assistantQueuedChats.filter(item => item.status === 'pending').length, globalUsage: assistant.usage(state), users: state.users.map(user => ({ id: user.id, username: user.username, displayName: user.displayName, role: user.role, allowed: allowed(user, 'accessAssistant'), limits: assistant.limits(state, user).user, overrides: user.assistantLimits || {}, usage: assistant.usage(state, user.id) })), reports: state.healthReports.slice(0, 14), reviews: state.assistantReviews.slice(0, 14), reviewRunning: maintenanceReviewRunning });
   }
   if (url.pathname === '/api/admin/assistant' && req.method === 'PATCH') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
@@ -1187,13 +1192,22 @@ setInterval(() => { try { goService.maintenance(); } catch (error) { console.err
 setInterval(() => { if (pruneFeedback()) save(state); }, 3_600_000).unref();
 generateReport(state, save);
 async function maybeAutoReview() {
-  if (!assistantKey || !state.settings.assistantEnabled || !state.settings.assistantAutoReview || maintenanceReviewRunning) return;
+  if (!assistantKey || !state.settings.assistantEnabled || !state.settings.assistantAutoReview || maintenanceReviewRunning || !safeOffPeakStart(new Date(), assistantModel)) return;
   const admin = state.users.find(item => item.role === 'admin' && item.active);
   if (!admin) return;
   try { await performMaintenanceReview(admin, 'auto'); } catch (error) { console.error('AI maintenance review error:', error.message); }
 }
+async function maybeSendQueuedChats() {
+  if (queuedChatRunning || !safeOffPeakStart(new Date(), assistantModel)) return;
+  queuedChatRunning = true;
+  try { await chatService.processQueuedChats({ state, save, key: assistantKey, model: assistantModel, allowed }); }
+  catch (error) { console.error('Queued AI chat error:', error.message); }
+  finally { queuedChatRunning = false; }
+}
 maybeAutoReview().catch(error => console.error('AI maintenance startup error:', error.message));
-setInterval(() => { try { generateReport(state, save); maybeAutoReview().catch(error => console.error('AI maintenance review error:', error.message)); } catch (error) { console.error('Health report error:', error.message); } }, 3_600_000).unref();
+maybeSendQueuedChats().catch(error => console.error('Queued AI chat startup error:', error.message));
+setInterval(() => { try { generateReport(state, save); maybeAutoReview().catch(error => console.error('AI maintenance review error:', error.message)); } catch (error) { console.error('Health report error:', error.message); } }, 60_000).unref();
+setInterval(() => { maybeSendQueuedChats().catch(error => console.error('Queued AI chat error:', error.message)); }, 60_000).unref();
 
 server.listen(PORT, HOST, () => {
   console.log(`Polynomial Server: http://${HOST}:${PORT}`);

@@ -17,9 +17,12 @@
       <section class="workspace-card assistant-card" id="assistantCard">
         <div class="card-heading"><div><span class="workspace-icon">✦</span><div><small>AI ASSISTANT</small><h2>智能助手</h2></div></div><span class="status-pill" id="assistantStatus">读取中</span></div>
         <p class="card-intro" id="assistantDescription">正在读取服务状态…</p>
+        <div class="pricing-window" id="pricingWindow" role="status"><strong>正在读取 DeepSeek 时段…</strong><span id="pricingDetails"></span></div>
         <div class="assistant-usage" id="assistantUsage"></div>
         <div class="assistant-thread" id="assistantThread" aria-live="polite"></div>
+        <div id="assistantQueue" class="assistant-queue"></div>
         <form id="assistantForm" class="assistant-form"><textarea id="assistantMessage" rows="2" maxlength="2000" placeholder="提出一个问题，或请我帮你整理计划…"></textarea><button type="submit">发送 ↗</button></form>
+        <label class="send-mode" id="sendModeLabel"><input type="checkbox" id="sendOffPeak" checked><span>高峰期先排队，进入空闲时段后自动发送；取消勾选可立即发送。</span></label>
         <p class="workspace-note">AI 只会回答，不会直接执行服务器命令或读取邮箱。每次调用均计入你的额度。</p>
       </section>
       <section class="workspace-card planner-card" id="plannerCard">
@@ -51,7 +54,7 @@
         <label>用户默认每日次数<input name="assistantDefaultUserDailyRequests" type="number" min="0" required></label><label>用户默认每月次数<input name="assistantDefaultUserMonthlyRequests" type="number" min="0" required></label>
         <label>单次最大输出 token<input name="assistantMaxOutputTokens" type="number" min="1" max="4096" required></label><button type="submit">保存全站设置</button></form><p id="settingsNotice" role="status"></p></div>
         <div><h3>逐用户额度</h3><div id="assistantUsers"></div></div></div>
-      <div class="health-panel"><div class="card-heading"><div><span class="workspace-icon">◎</span><div><small>DAILY REVIEW</small><h2>服务器巡检</h2></div></div><div class="review-actions"><button id="runHealth" type="button" class="button-secondary">刷新基础报告</button><button id="runAiReview" type="button">运行 AI 巡检 ↗</button></div></div><p class="workspace-note">基础报告只读。AI 会分析汇总指标并给出建议；仅在开启“自动执行安全清理”时，允许清除已过期的登录会话。不会运行模型生成的命令。</p><p id="reviewNotice" class="workspace-note" role="status"></p><div id="healthReports"></div><h3>AI 巡检与执行记录</h3><div id="aiReviews"></div></div>
+      <div class="health-panel"><div class="card-heading"><div><span class="workspace-icon">◎</span><div><small>DAILY REVIEW</small><h2>服务器巡检</h2></div></div><div class="review-actions"><button id="runHealth" type="button" class="button-secondary">刷新基础报告</button><button id="runAiReview" type="button">运行 AI 巡检 ↗</button></div></div><p class="workspace-note">基础报告只读，每日自动 AI 巡检只在空闲时段运行。手动巡检会立即调用；AI 仅分析汇总指标。只有管理员开启“自动执行安全清理”后，系统才允许清除已过期的登录会话；不会运行模型生成的命令。</p><p id="reviewNotice" class="workspace-note" role="status"></p><div id="healthReports"></div><h3>AI 巡检与执行记录</h3><div id="aiReviews"></div></div>
     </section>
   </main>
   <script src="/assets/site.js"></script><script src="/assets/workspace.js"></script>
