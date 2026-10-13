@@ -15,6 +15,9 @@ const { GoRuleError } = require('./lib/go-engine');
 const { GoService } = require('./lib/go-service');
 const { KataGoManager } = require('./lib/katago');
 const { createRecoveryRequest, consumeRecoveryRequest } = require('./lib/password-recovery');
+const assistant = require('./lib/assistant');
+const { generateReport } = require('./lib/health');
+const { runReview } = require('./lib/maintenance');
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +27,19 @@ const HOST = process.env.HOST || '127.0.0.1';
 const nestedPublicDir = path.join(__dirname, 'public');
 const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nestedPublicDir : __dirname;
 const state = load();
+const assistantKey = process.env.DEEPSEEK_API_KEY || '';
+const assistantModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+let maintenanceReviewRunning = false;
+async function performMaintenanceReview(user, source = 'manual') {
+  if (maintenanceReviewRunning) throw new Error('已有 AI 巡检正在运行');
+  maintenanceReviewRunning = true;
+  try {
+    const report = generateReport(state, save, new Date(), source === 'manual');
+    const review = await runReview({ state, save, user, key: assistantKey, model: assistantModel, report, source });
+    if (review) { appendAudit({ user, action: 'assistant-maintenance-review', detail: `${review.status}; executed=${review.executedActions.map(item => item.id).join(',')}` }); save(state); }
+    return review;
+  } finally { maintenanceReviewRunning = false; }
+}
 const loginAttempts = new Map();
 const recoveryAttempts = new Map();
 const recoveryRequestAttempts = new Map();
@@ -381,6 +397,14 @@ function pruneFeedback() {
 }
 
 async function api(req, res, url) {
+  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname === '/api/admin/health/run')) {
+    const origin = req.headers.origin;
+    if (origin) {
+      let sameOrigin = false;
+      try { sameOrigin = new URL(origin).host === req.headers.host; } catch {}
+      if (!sameOrigin) return json(res, 403, { error: '请求来源不匹配' });
+    }
+  }
   if (url.pathname === '/api/login' && req.method === 'POST') {
     const ip = clientAddress(req);
     const recent = (loginAttempts.get(ip) || []).filter(t => Date.now() - t < 10 * 60_000);
@@ -450,6 +474,75 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/me' && req.method === 'GET') {
     const user = currentUser(req); return json(res, 200, { user: user ? publicUser(user) : null });
+  }
+  if (url.pathname === '/api/workspace' && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return;
+    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), model: assistantModel, limits: assistant.limits(state, user), usage: assistant.usage(state, user.id) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+  }
+  if (url.pathname === '/api/workspace/planner' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessPlanner')) return;
+    const data = await body(req), title = String(data.title || '').trim(), dueAt = data.dueAt ? new Date(data.dueAt) : null;
+    if (!title || title.length > 120 || (dueAt && !Number.isFinite(dueAt.getTime()))) return json(res, 400, { error: '请输入有效的事项和提醒时间' });
+    if (state.plannerItems.filter(item => item.userId === user.id && !item.done).length >= 100) return json(res, 429, { error: '最多保存 100 个待办事项' });
+    const item = { id: crypto.randomUUID(), userId: user.id, title, dueAt: dueAt?.toISOString() || null, done: false, createdAt: new Date().toISOString() };
+    state.plannerItems.push(item); save(state); return json(res, 201, { item });
+  }
+  const plannerMatch = url.pathname.match(/^\/api\/workspace\/planner\/([a-f0-9-]+)$/);
+  if (plannerMatch && ['PATCH', 'DELETE'].includes(req.method)) {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessPlanner')) return;
+    const index = state.plannerItems.findIndex(item => item.id === plannerMatch[1] && item.userId === user.id);
+    if (index < 0) return json(res, 404, { error: '事项不存在' });
+    if (req.method === 'DELETE') state.plannerItems.splice(index, 1);
+    else { const data = await body(req); if (typeof data.done !== 'boolean') return json(res, 400, { error: '状态格式错误' }); state.plannerItems[index].done = data.done; }
+    save(state); return json(res, 200, { ok: true });
+  }
+  if (url.pathname === '/api/workspace/assistant' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    if (!denyUnless(res, user, 'accessAssistant')) return;
+    if (!state.settings.assistantEnabled || !assistantKey) return json(res, 503, { error: 'AI 服务尚未启用或配置 API 密钥' });
+    const data = await body(req), message = String(data.message || '').trim();
+    if (!message || message.length > 2000) return json(res, 400, { error: '消息需为 1–2000 字' });
+    const recent = state.assistantChats.filter(item => item.userId === user.id).slice(-8);
+    const messages = [{ role: 'system', content: '你是 Polynomial Server 的个人助理。用简洁中文回答。你没有服务器命令、邮箱或日历工具；不要声称已经执行操作。' }, ...recent.map(item => ({ role: item.role, content: item.content })), { role: 'user', content: message }];
+    const maxOutput = Math.max(1, Math.min(4096, Number(state.settings.assistantMaxOutputTokens || 512)));
+    const reservation = assistant.reserve(state, save, user, assistant.estimateReservation(messages, maxOutput));
+    try {
+      const result = await assistant.complete({ key: assistantKey, model: assistantModel, messages, maxOutput });
+      assistant.finish(state, save, reservation, result.tokens || reservation.tokens, 'completed');
+      state.assistantChats.push({ id: crypto.randomUUID(), userId: user.id, role: 'user', content: message, at: new Date().toISOString() }, { id: crypto.randomUUID(), userId: user.id, role: 'assistant', content: result.content, at: new Date().toISOString() });
+      state.assistantChats = state.assistantChats.slice(-3000); save(state);
+      return json(res, 200, { reply: result.content, usage: assistant.usage(state, user.id) });
+    } catch (error) { assistant.finish(state, save, reservation, 0, 'failed'); return json(res, 502, { error: error.message }); }
+  }
+  if (url.pathname === '/api/admin/assistant' && req.method === 'GET') {
+    if (!requireUser(req, res, 'admin')) return;
+    return json(res, 200, { settings: Object.fromEntries(Object.entries(state.settings).filter(([key]) => key.startsWith('assistant'))), configured: Boolean(assistantKey), model: assistantModel, globalUsage: assistant.usage(state), users: state.users.map(user => ({ id: user.id, username: user.username, displayName: user.displayName, role: user.role, allowed: allowed(user, 'accessAssistant'), limits: assistant.limits(state, user).user, overrides: user.assistantLimits || {}, usage: assistant.usage(state, user.id) })), reports: state.healthReports.slice(0, 14), reviews: state.assistantReviews.slice(0, 14), reviewRunning: maintenanceReviewRunning });
+  }
+  if (url.pathname === '/api/admin/assistant' && req.method === 'PATCH') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    Object.assign(state.settings, assistant.validateSettings(await body(req))); save(state);
+    if (state.settings.assistantAutoReview && state.settings.assistantEnabled) maybeAutoReview().catch(error => console.error('AI maintenance review error:', error.message));
+    return json(res, 200, { ok: true });
+  }
+  if (url.pathname === '/api/admin/assistant/review' && req.method === 'POST') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    if (!assistantKey || !state.settings.assistantEnabled) return json(res, 503, { error: '请先配置 API 密钥并开启 AI 对话' });
+    const review = await performMaintenanceReview(admin);
+    return json(res, review?.status === 'completed' ? 200 : 502, { review, error: review?.status === 'failed' ? review.error : undefined });
+  }
+  const assistantUserMatch = url.pathname.match(/^\/api\/admin\/assistant\/users\/([a-f0-9-]+)$/);
+  if (assistantUserMatch && req.method === 'PATCH') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    const target = state.users.find(item => item.id === assistantUserMatch[1]); if (!target) return json(res, 404, { error: '用户不存在' });
+    const data = await body(req); target.assistantLimits = { ...(target.assistantLimits || {}), ...assistant.validateUserLimits(data.limits || {}) };
+    if (typeof data.allowed === 'boolean' && target.role !== 'admin') target.permissions.accessAssistant = data.allowed;
+    appendAudit({ user: admin, action: 'assistant-limit-change', req, detail: target.username }); save(state); return json(res, 200, { ok: true });
+  }
+  if (url.pathname === '/api/admin/health/run' && req.method === 'POST') {
+    if (!requireUser(req, res, 'admin')) return;
+    return json(res, 200, { report: generateReport(state, save, new Date(), true) });
   }
   if (url.pathname === '/api/feedback/config' && req.method === 'GET') {
     return json(res, 200, { enabled: state.settings.feedbackEnabled !== false, anonymousEnabled: state.settings.feedbackAnonymousEnabled !== false });
@@ -967,7 +1060,7 @@ function staticFile(req, res, url) {
     res.writeHead(308, { Location: `${calculatorRoot}/`, 'Cache-Control': 'no-store' });
     return res.end();
   }
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python|workspace)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }
@@ -1092,6 +1185,15 @@ async function cleanupIdleNotebooks() {
 setInterval(cleanupIdleNotebooks, 60_000).unref();
 setInterval(() => { try { goService.maintenance(); } catch (error) { console.error('Go maintenance error:', error.message); } }, 5_000).unref();
 setInterval(() => { if (pruneFeedback()) save(state); }, 3_600_000).unref();
+generateReport(state, save);
+async function maybeAutoReview() {
+  if (!assistantKey || !state.settings.assistantEnabled || !state.settings.assistantAutoReview || maintenanceReviewRunning) return;
+  const admin = state.users.find(item => item.role === 'admin' && item.active);
+  if (!admin) return;
+  try { await performMaintenanceReview(admin, 'auto'); } catch (error) { console.error('AI maintenance review error:', error.message); }
+}
+maybeAutoReview().catch(error => console.error('AI maintenance startup error:', error.message));
+setInterval(() => { try { generateReport(state, save); maybeAutoReview().catch(error => console.error('AI maintenance review error:', error.message)); } catch (error) { console.error('Health report error:', error.message); } }, 3_600_000).unref();
 
 server.listen(PORT, HOST, () => {
   console.log(`Polynomial Server: http://${HOST}:${PORT}`);

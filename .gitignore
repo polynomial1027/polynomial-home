@@ -17,3 +17,4 @@ logs/
 *.tmp
 *.bak
 *~
+node_modules/

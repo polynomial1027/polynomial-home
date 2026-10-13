@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>个人空间 · Polynomial Server</title>
+  <link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/workspace.css">
+</head>
+<body>
+  <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><nav class="nav-links" id="navLinks"></nav></div></header>
+  <main class="workspace-shell" id="workspace">
+    <section class="workspace-hero">
+      <div><div class="eyebrow">MY SPACE / CONTROL CENTER</div><h1><span id="workspaceGreeting">你好</span>，<span id="workspaceName">朋友</span><span class="workspace-dot">.</span></h1><p>你的日程、智能助手和服务器状态，都在这里。</p></div>
+      <div class="workspace-date" id="workspaceDate"></div>
+    </section>
+    <nav class="workspace-shortcuts" aria-label="个人空间分区"><a href="#assistantCard">AI 对话 <span>↗</span></a><a href="#plannerCard">计划提醒 <span>↗</span></a><a href="#toolsCard">常用工具 <span>↗</span></a><a href="#adminWorkspace" id="adminShortcut" hidden>AI 管理与巡检 <span>↗</span></a></nav>
+    <div class="workspace-grid">
+      <section class="workspace-card assistant-card" id="assistantCard">
+        <div class="card-heading"><div><span class="workspace-icon">✦</span><div><small>AI ASSISTANT</small><h2>智能助手</h2></div></div><span class="status-pill" id="assistantStatus">读取中</span></div>
+        <p class="card-intro" id="assistantDescription">正在读取服务状态…</p>
+        <div class="assistant-usage" id="assistantUsage"></div>
+        <div class="assistant-thread" id="assistantThread" aria-live="polite"></div>
+        <form id="assistantForm" class="assistant-form"><textarea id="assistantMessage" rows="2" maxlength="2000" placeholder="提出一个问题，或请我帮你整理计划…"></textarea><button type="submit">发送 ↗</button></form>
+        <p class="workspace-note">AI 只会回答，不会直接执行服务器命令或读取邮箱。每次调用均计入你的额度。</p>
+      </section>
+      <section class="workspace-card planner-card" id="plannerCard">
+        <div class="card-heading"><div><span class="workspace-icon">▦</span><div><small>YOUR DAY</small><h2>计划与提醒</h2></div></div><span class="status-pill quiet" id="plannerCount">0 项</span></div>
+        <p class="card-intro">记录待办与时间；到期事项会在打开个人空间时提醒。</p>
+        <form id="plannerForm" class="planner-form"><input id="plannerTitle" maxlength="120" placeholder="今天要完成什么？" required><input id="plannerDue" type="datetime-local" aria-label="提醒时间"><button type="submit">添加</button></form>
+        <div id="plannerList" class="planner-list"></div>
+      </section>
+      <section class="workspace-card service-card" id="toolsCard">
+        <div class="card-heading"><div><span class="workspace-icon">⌘</span><div><small>YOUR TOOLS</small><h2>常用功能</h2></div></div></div>
+        <div class="service-links"><a href="/drive.html"><strong>私人文件</strong><span>整理和分享网盘内容 ↗</span></a><a href="/chat.html"><strong>团队聊天</strong><span>查看消息与协作 ↗</span></a><a href="/learning.html"><strong>网络学习</strong><span>继续课程进度 ↗</span></a></div>
+      </section>
+      <section class="workspace-card integrations-card">
+        <div class="card-heading"><div><span class="workspace-icon">＋</span><div><small>COMING NEXT</small><h2>待接入的能力</h2></div></div></div>
+        <div class="integration-row"><strong>邮箱助手</strong><span>待授权接入</span></div><div class="integration-row"><strong>外部日历</strong><span>待授权接入</span></div><div class="integration-row"><strong>扩展功能接口</strong><span>预留中</span></div>
+        <p class="workspace-note">邮箱和日历尚未连接。未来接入时会按账号授权并沿用管理员的用量限制。</p>
+      </section>
+    </div>
+    <section class="workspace-card admin-workspace" id="adminWorkspace" hidden>
+      <div class="card-heading"><div><span class="workspace-icon">◉</span><div><small>ADMIN CONTROL</small><h2>AI 流量控制与服务器巡检</h2></div></div><a href="/admin.html">管理后台 ↗</a></div>
+      <div class="admin-flow"><div><b>01</b><strong>配置密钥</strong><small>服务器私有环境变量</small></div><div><b>02</b><strong>设置额度</strong><small>全站与个人双重上限</small></div><div><b>03</b><strong>试运行巡检</strong><small>查看 AI 建议与执行记录</small></div></div>
+      <div class="admin-workspace-grid"><div><h3>全站开关与额度</h3><p id="providerState" class="workspace-note"></p><form id="assistantSettingsForm" class="limits-form">
+        <label>开放 AI 对话<select name="assistantEnabled"><option value="false">关闭</option><option value="true">开放</option></select></label>
+        <label>每日自动 AI 巡检<select name="assistantAutoReview"><option value="false">关闭</option><option value="true">开启</option></select></label>
+        <label>自动执行安全清理<select name="assistantAutoMaintenance"><option value="false">仅建议，不执行</option><option value="true">执行允许的安全清理</option></select></label>
+        <label>全站每日 token<input name="assistantDailyTokens" type="number" min="0" required></label><label>全站每月 token<input name="assistantMonthlyTokens" type="number" min="0" required></label>
+        <label>全站每日次数<input name="assistantDailyRequests" type="number" min="0" required></label><label>全站每月次数<input name="assistantMonthlyRequests" type="number" min="0" required></label>
+        <label>用户默认每日 token<input name="assistantDefaultUserDailyTokens" type="number" min="0" required></label><label>用户默认每月 token<input name="assistantDefaultUserMonthlyTokens" type="number" min="0" required></label>
+        <label>用户默认每日次数<input name="assistantDefaultUserDailyRequests" type="number" min="0" required></label><label>用户默认每月次数<input name="assistantDefaultUserMonthlyRequests" type="number" min="0" required></label>
+        <label>单次最大输出 token<input name="assistantMaxOutputTokens" type="number" min="1" max="4096" required></label><button type="submit">保存全站设置</button></form><p id="settingsNotice" role="status"></p></div>
+        <div><h3>逐用户额度</h3><div id="assistantUsers"></div></div></div>
+      <div class="health-panel"><div class="card-heading"><div><span class="workspace-icon">◎</span><div><small>DAILY REVIEW</small><h2>服务器巡检</h2></div></div><div class="review-actions"><button id="runHealth" type="button" class="button-secondary">刷新基础报告</button><button id="runAiReview" type="button">运行 AI 巡检 ↗</button></div></div><p class="workspace-note">基础报告只读。AI 会分析汇总指标并给出建议；仅在开启“自动执行安全清理”时，允许清除已过期的登录会话。不会运行模型生成的命令。</p><p id="reviewNotice" class="workspace-note" role="status"></p><div id="healthReports"></div><h3>AI 巡检与执行记录</h3><div id="aiReviews"></div></div>
+    </section>
+  </main>
+  <script src="/assets/site.js"></script><script src="/assets/workspace.js"></script>
+</body>
+</html>
