@@ -21,7 +21,7 @@
     $('#assistantForm button').textContent = pricing.peak && $('#sendOffPeak').checked ? '低谷发送 ↗' : '发送 ↗';
     const u = ai.usage, l = ai.limits.user;
     $('#assistantUsage').innerHTML = `<span>今日 token <strong>${format(u.dailyTokens)} / ${format(l.dailyTokens)}</strong></span><span>本月 token <strong>${format(u.monthlyTokens)} / ${format(l.monthlyTokens)}</strong></span><span>今日调用 <strong>${format(u.dailyRequests)} / ${format(l.dailyRequests)}</strong></span>`;
-    $('#assistantThread').innerHTML = snapshot.chats.length ? snapshot.chats.map(item => `<div class="assistant-message ${item.role === 'user' ? 'user' : ''}"><small>${item.role === 'user' ? '你' : '助手'}</small>${escape(item.content)}</div>`).join('') : '<div class="empty-state">还没有对话。等 API 接入后，可以在这里开始。</div>';
+    $('#assistantThread').innerHTML = snapshot.chats.length ? snapshot.chats.map(item => `<div class="assistant-message ${item.role === 'user' ? 'user' : ''}"><small>${item.role === 'user' ? '你' : '助手'}</small>${item.role === 'user' ? escape(item.content) : window.renderAssistantMath(item.content)}</div>`).join('') : '<div class="empty-state">还没有对话。可提问或让助手安排日程。</div>';
     $('#assistantThread').scrollTop = $('#assistantThread').scrollHeight;
     const queue = ai.queue.filter(item => item.status === 'pending' || item.status === 'running' || item.status === 'failed').slice(-10).reverse();
     $('#assistantQueue').innerHTML = queue.map(item => `<div class="queue-item"><div><strong>${item.status === 'pending' ? '等待空闲时段' : item.status === 'running' ? '正在发送' : '发送失败'} · ${dateText(item.createdAt)}</strong>${escape(item.message || item.error || '')}</div>${item.status === 'pending' ? `<button type="button" data-cancel-queue="${item.id}" aria-label="取消排队消息">取消</button>` : ''}</div>`).join('');
@@ -31,7 +31,7 @@
   function renderPlanner() {
     const items = snapshot.planner, due = items.filter(item => !item.done && item.dueAt && new Date(item.dueAt) <= new Date());
     $('#plannerCount').textContent = `${items.filter(item => !item.done).length} 项待办${due.length ? ` · ${due.length} 项到期` : ''}`;
-    $('#plannerList').innerHTML = items.length ? items.map(item => `<div class="planner-item ${item.done ? 'done' : item.dueAt && new Date(item.dueAt) <= new Date() ? 'due' : ''}"><label class="planner-item-main"><input type="checkbox" data-toggle="${item.id}" ${item.done ? 'checked' : ''}><span>${escape(item.title)}${item.dueAt ? `<small>${dateText(item.dueAt)}${!item.done && new Date(item.dueAt) <= new Date() ? ' · 已到期' : ''}</small>` : ''}</span></label><button type="button" data-delete="${item.id}" aria-label="删除事项">×</button></div>`).join('') : '<div class="empty-state">还没有待办，添加第一件事吧。</div>';
+    $('#plannerList').innerHTML = items.length ? items.map(item => `<div class="planner-item ${item.done ? 'done' : item.dueAt && new Date(item.dueAt) <= new Date() ? 'due' : ''}"><label class="planner-item-main"><input type="checkbox" data-toggle="${item.id}" ${item.done ? 'checked' : ''}><span>${escape(item.title)}${item.dueAt ? `<small>${dateText(item.dueAt)}${!item.done && new Date(item.dueAt) <= new Date() ? ' · 已到期' : ''}${item.scheduled === false ? ' · 明日安排已暂停' : ''}${item.source === 'assistant' ? ' · AI 安排' : ''}</small>` : ''}</span></label><button type="button" data-delete="${item.id}" aria-label="删除事项">×</button></div>`).join('') : '<div class="empty-state">还没有待办，添加第一件事吧。</div>';
     $('#plannerList').querySelectorAll('[data-toggle]').forEach(input => input.onchange = async () => { await request(`/api/workspace/planner/${input.dataset.toggle}`, { method: 'PATCH', body: JSON.stringify({ done: input.checked }) }); await refresh(); });
     $('#plannerList').querySelectorAll('[data-delete]').forEach(button => button.onclick = async () => { await request(`/api/workspace/planner/${button.dataset.delete}`, { method: 'DELETE' }); await refresh(); });
   }
@@ -56,7 +56,8 @@
     $('#aiReviews').innerHTML = reviews.length ? reviews.map(review => `<article class="ai-review ${escape(review.risk || '')}"><header><strong>${escape(review.day)} · ${review.source === 'auto' ? '自动巡检' : '手动巡检'} · ${review.status === 'completed' ? '已完成' : review.status === 'running' ? '运行中' : '失败'}</strong><small>${dateText(review.createdAt)}</small></header><p>${escape(review.summary || review.error || '正在分析服务器汇总指标…')}</p>${review.proposedActions?.length ? `<small class="action-line">AI 建议：清除已过期的登录会话</small>` : ''}${review.executedActions?.length ? `<small class="action-line">已执行安全清理：移除 ${review.executedActions[0].removed} 个过期会话</small>` : review.proposedActions?.length ? '<small class="action-line">尚未执行；可由管理员开启安全清理后再次试运行</small>' : ''}</article>`).join('') : '<div class="empty-state">还没有 AI 巡检记录。配置密钥并开启 AI 后可手动试运行。</div>';
   }
 
-  async function refresh() { snapshot = await request('/api/workspace'); renderAssistant(); renderPlanner(); }
+  async function refresh() { snapshot = await request('/api/workspace'); renderAssistant(); renderPlanner(); window.DailyWorkspace.render(snapshot); }
+  window.addEventListener('workspace:refresh', () => refresh().catch(console.error));
   async function refreshAdmin() { adminSnapshot = await request('/api/admin/assistant'); renderAdmin(); }
   async function init() {
     const account = await request('/api/me');

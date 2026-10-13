@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>个人空间 · Polynomial Server</title>
-  <link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/workspace.css">
+  <link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/workspace.css"><link rel="stylesheet" href="/assets/workspace-daily.css"><link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
 </head>
 <body>
   <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><nav class="nav-links" id="navLinks"></nav></div></header>
@@ -12,7 +12,7 @@
       <div><div class="eyebrow">MY SPACE / CONTROL CENTER</div><h1><span id="workspaceGreeting">你好</span>，<span id="workspaceName">朋友</span><span class="workspace-dot">.</span></h1><p>你的日程、智能助手和服务器状态，都在这里。</p></div>
       <div class="workspace-date" id="workspaceDate"></div>
     </section>
-    <nav class="workspace-shortcuts" aria-label="个人空间分区"><a href="#assistantCard">AI 对话 <span>↗</span></a><a href="#plannerCard">计划提醒 <span>↗</span></a><a href="#toolsCard">常用工具 <span>↗</span></a><a href="#adminWorkspace" id="adminShortcut" hidden>AI 管理与巡检 <span>↗</span></a></nav>
+    <nav class="workspace-shortcuts" aria-label="个人空间分区"><a href="#assistantCard">AI 对话 <span>↗</span></a><a href="#plannerCard">计划提醒 <span>↗</span></a><a href="#calendarCard">日历 <span>↗</span></a><button type="button" id="openDailyBrief" class="brief-shortcut">每日回顾 ↗</button><a href="#toolsCard">常用工具 <span>↗</span></a><a href="#adminWorkspace" id="adminShortcut" hidden>AI 管理与巡检 <span>↗</span></a></nav>
     <div class="workspace-grid">
       <section class="workspace-card assistant-card" id="assistantCard">
         <div class="card-heading"><div><span class="workspace-icon">✦</span><div><small>AI ASSISTANT</small><h2>智能助手</h2></div></div><span class="status-pill" id="assistantStatus">读取中</span></div>
@@ -23,13 +23,19 @@
         <div id="assistantQueue" class="assistant-queue"></div>
         <form id="assistantForm" class="assistant-form"><textarea id="assistantMessage" rows="2" maxlength="2000" placeholder="提出一个问题，或请我帮你整理计划…"></textarea><button type="submit">发送 ↗</button></form>
         <label class="send-mode" id="sendModeLabel"><input type="checkbox" id="sendOffPeak" checked><span>高峰期先排队，进入空闲时段后自动发送；取消勾选可立即发送。</span></label>
-        <p class="workspace-note">AI 只会回答，不会直接执行服务器命令或读取邮箱。每次调用均计入你的额度。</p>
+        <p class="workspace-note">告诉助手“明天 9 点提醒我…”可自动加入计划与日历。AI 不会直接执行服务器命令或读取邮箱。每次调用均计入你的额度。</p>
       </section>
       <section class="workspace-card planner-card" id="plannerCard">
         <div class="card-heading"><div><span class="workspace-icon">▦</span><div><small>YOUR DAY</small><h2>计划与提醒</h2></div></div><span class="status-pill quiet" id="plannerCount">0 项</span></div>
         <p class="card-intro">记录待办与时间；到期事项会在打开个人空间时提醒。</p>
         <form id="plannerForm" class="planner-form"><input id="plannerTitle" maxlength="120" placeholder="今天要完成什么？" required><input id="plannerDue" type="datetime-local" aria-label="提醒时间"><button type="submit">添加</button></form>
         <div id="plannerList" class="planner-list"></div>
+      </section>
+      <section class="workspace-card calendar-card" id="calendarCard">
+        <div class="card-heading"><div><span class="workspace-icon">◫</span><div><small>YOUR CALENDAR</small><h2>日程日历</h2></div></div><div class="calendar-controls"><button type="button" id="calendarPrev" aria-label="上个月">‹</button><strong id="calendarMonth"></strong><button type="button" id="calendarNext" aria-label="下个月">›</button></div></div>
+        <p class="card-intro">手动添加和 AI 安排的事项都会显示在这里。点击日期查看当天计划。</p>
+        <div class="calendar-weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div id="calendarGrid" class="calendar-grid" role="grid" aria-label="日程日历"></div><div id="calendarDetails" class="calendar-details"></div>
       </section>
       <section class="workspace-card service-card" id="toolsCard">
         <div class="card-heading"><div><span class="workspace-icon">⌘</span><div><small>YOUR TOOLS</small><h2>常用功能</h2></div></div></div>
@@ -38,7 +44,7 @@
       <section class="workspace-card integrations-card">
         <div class="card-heading"><div><span class="workspace-icon">＋</span><div><small>COMING NEXT</small><h2>待接入的能力</h2></div></div></div>
         <div class="integration-row"><strong>邮箱助手</strong><span>待授权接入</span></div><div class="integration-row"><strong>外部日历</strong><span>待授权接入</span></div><div class="integration-row"><strong>扩展功能接口</strong><span>预留中</span></div>
-        <p class="workspace-note">邮箱和日历尚未连接。未来接入时会按账号授权并沿用管理员的用量限制。</p>
+        <p class="workspace-note">站内日程已可使用；外部邮箱与日历尚未连接。邮件回复计划只记录为待办，不会自动读取或发送邮件。</p>
       </section>
     </div>
     <section class="workspace-card admin-workspace" id="adminWorkspace" hidden>
@@ -57,6 +63,7 @@
       <div class="health-panel"><div class="card-heading"><div><span class="workspace-icon">◎</span><div><small>DAILY REVIEW</small><h2>服务器巡检</h2></div></div><div class="review-actions"><button id="runHealth" type="button" class="button-secondary">刷新基础报告</button><button id="runAiReview" type="button">运行 AI 巡检 ↗</button></div></div><p class="workspace-note">基础报告只读，每日自动 AI 巡检只在空闲时段运行。手动巡检会立即调用；AI 仅分析汇总指标。只有管理员开启“自动执行安全清理”后，系统才允许清除已过期的登录会话；不会运行模型生成的命令。</p><p id="reviewNotice" class="workspace-note" role="status"></p><div id="healthReports"></div><h3>AI 巡检与执行记录</h3><div id="aiReviews"></div></div>
     </section>
   </main>
-  <script src="/assets/site.js"></script><script src="/assets/workspace.js"></script>
+  <dialog id="dailyBriefDialog" class="daily-brief-dialog" aria-labelledby="dailyBriefTitle"><div class="daily-brief-head"><div><small>DAILY REVIEW · ASIA/SHANGHAI</small><h2 id="dailyBriefTitle">今日回顾 · 明日安排</h2><p id="dailyBriefDate"></p></div><button type="button" id="briefClose" aria-label="关闭每日回顾">×</button></div><div class="daily-brief-body"><section><h3>今天已完成</h3><div id="briefCompleted"></div></section><section><h3>明天继续哪些计划？</h3><p>勾选要保留的安排，取消勾选的事项仍保存在计划中，但不会列入明日安排。</p><div id="briefTomorrow"></div></section><section id="briefServerSection" hidden><h3>服务器每日巡检</h3><div id="briefServer"></div></section></div><footer><span id="briefNotice" role="status"></span><button type="button" id="briefSave">保存明日安排</button></footer></dialog>
+  <script src="/assets/site.js"></script><script src="/assets/vendor/katex/katex.min.js"></script><script src="/assets/workspace-math.js"></script><script src="/assets/workspace-daily.js"></script><script src="/assets/workspace.js"></script>
 </body>
 </html>

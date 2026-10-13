@@ -29,7 +29,7 @@ test('official peak boundaries, lunch break, weekends and 2026 holidays use Shan
 test('peak queued chat waits, then sends once off peak and shares quota', async () => {
   const user = { id: 'alice', active: true, assistantLimits: {} };
   const state = { users: [user], settings, assistantUsage: [], assistantChats: [], assistantQueuedChats: [] };
-  const item = queueChat(state, () => {}, user, '请帮我安排今天的任务', local('2026-10-14T10:00:00'));
+  const item = queueChat(state, () => {}, user, '你好', local('2026-10-14T10:00:00'));
   let calls = 0;
   const complete = async () => { calls++; return { content: '先检查待办，再安排重点任务。', tokens: 52 }; };
   const args = { state, save: () => {}, key: 'test', model: 'deepseek-flash', allowed: () => true, complete };

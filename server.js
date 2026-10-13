@@ -17,6 +17,7 @@ const { KataGoManager } = require('./lib/katago');
 const { createRecoveryRequest, consumeRecoveryRequest } = require('./lib/password-recovery');
 const assistant = require('./lib/assistant');
 const chatService = require('./lib/chat-service');
+const plannerService = require('./lib/planner');
 const { priceWindow, safeOffPeakStart } = require('./lib/pricing');
 const { generateReport } = require('./lib/health');
 const { runReview } = require('./lib/maintenance');
@@ -111,7 +112,7 @@ function loadDefaultLexicon() {
 }
 const defaultLexicon = loadDefaultLexicon();
 
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
 const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(v => v.trim().split('=').map(decodeURIComponent)));
 const currentUser = req => {
@@ -480,16 +481,18 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
-    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), model: assistantModel, pricing: priceWindow(new Date(), assistantModel), limits: assistant.limits(state, user), usage: assistant.usage(state, user.id), queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), model: assistantModel, pricing: priceWindow(new Date(), assistantModel), limits: assistant.limits(state, user), usage: assistant.usage(state, user.id), queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+  }
+  if (url.pathname === '/api/workspace/brief/seen' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    plannerService.markBriefSeen(state, save, user);
+    return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/workspace/planner' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessPlanner')) return;
-    const data = await body(req), title = String(data.title || '').trim(), dueAt = data.dueAt ? new Date(data.dueAt) : null;
-    if (!title || title.length > 120 || (dueAt && !Number.isFinite(dueAt.getTime()))) return json(res, 400, { error: '请输入有效的事项和提醒时间' });
-    if (state.plannerItems.filter(item => item.userId === user.id && !item.done).length >= 100) return json(res, 429, { error: '最多保存 100 个待办事项' });
-    const item = { id: crypto.randomUUID(), userId: user.id, title, dueAt: dueAt?.toISOString() || null, done: false, createdAt: new Date().toISOString() };
-    state.plannerItems.push(item); save(state); return json(res, 201, { item });
+    try { const item = plannerService.createItem(state, save, user, await body(req)); return json(res, 201, { item }); }
+    catch (error) { return json(res, /最多/.test(error.message) ? 429 : 400, { error: error.message }); }
   }
   const plannerMatch = url.pathname.match(/^\/api\/workspace\/planner\/([a-f0-9-]+)$/);
   if (plannerMatch && ['PATCH', 'DELETE'].includes(req.method)) {
@@ -497,9 +500,13 @@ async function api(req, res, url) {
     if (!denyUnless(res, user, 'accessPlanner')) return;
     const index = state.plannerItems.findIndex(item => item.id === plannerMatch[1] && item.userId === user.id);
     if (index < 0) return json(res, 404, { error: '事项不存在' });
-    if (req.method === 'DELETE') state.plannerItems.splice(index, 1);
-    else { const data = await body(req); if (typeof data.done !== 'boolean') return json(res, 400, { error: '状态格式错误' }); state.plannerItems[index].done = data.done; }
-    save(state); return json(res, 200, { ok: true });
+    if (req.method === 'DELETE') { state.plannerItems.splice(index, 1); save(state); }
+    else {
+      const data = await body(req);
+      if (typeof data.done !== 'boolean' && typeof data.scheduled !== 'boolean') return json(res, 400, { error: '状态格式错误' });
+      plannerService.updateItem(state, save, user, plannerMatch[1], data);
+    }
+    return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/workspace/assistant' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
