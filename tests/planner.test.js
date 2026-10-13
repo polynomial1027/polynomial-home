@@ -31,6 +31,7 @@ test('AI planning chat creates only valid dated tasks and uses shared quota', as
   const tomorrow = new Date(Date.now() + 86400_000).toISOString();
   const reply = await sendChat({ state, save: () => {}, user, value: '明天提醒我检查报告', key: 'test', model: 'deepseek-flash', complete: async args => {
     assert.equal(args.jsonMode, true);
+    assert.equal(args.disableThinking, true);
     return { content: JSON.stringify({ reply: '已经安排。', plans: [{ title: '检查报告', dueAt: tomorrow }, { title: '非法时间', dueAt: 'bad' }] }), tokens: 75 };
   } });
   assert.match(reply, /已加入计划与日历/);
