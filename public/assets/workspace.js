@@ -1,7 +1,7 @@
 (() => {
   const $ = selector => document.querySelector(selector);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-  let snapshot, adminSnapshot;
+  let snapshot, adminSnapshot, butlerSnapshot;
   const format = value => Number(value || 0).toLocaleString('zh-CN');
   const dateText = value => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const notice = (selector, message) => { $(selector).textContent = message; };
@@ -36,6 +36,21 @@
     $('#plannerList').querySelectorAll('[data-delete]').forEach(button => button.onclick = async () => { await request(`/api/workspace/planner/${button.dataset.delete}`, { method: 'DELETE' }); await refresh(); });
   }
 
+  function renderButler() {
+    if (!butlerSnapshot) return;
+    const labels = { accessAssistant: 'AI 助手', accessChat: '聊天', driveEnabled: '网盘', accessLearning: '学习', accessPlanner: '计划' };
+    const actions = new Map(butlerSnapshot.actions.map(action => [action.id, action]));
+    $('#butlerThread').innerHTML = butlerSnapshot.chats.length ? butlerSnapshot.chats.map(entry => `<div class="butler-message user"><small>你</small>${escape(entry.message)}</div><div class="butler-message"><small>服务器管家</small>${escape(entry.reply)}${entry.link?.startsWith('/admin.html') ? `<a href="${escape(entry.link)}">打开账号管理 ↗</a>` : ''}${actions.has(entry.actionId) ? `<div class="butler-action"><strong>${escape(actions.get(entry.actionId).targetName)} · ${escape(labels[actions.get(entry.actionId).permission] || '权限')} → ${actions.get(entry.actionId).value ? '开放' : '关闭'}</strong>${actions.get(entry.actionId).status === 'pending' ? `<button type="button" data-confirm-butler="${entry.actionId}">确认执行此变更</button>` : `<small>${actions.get(entry.actionId).status === 'confirmed' ? '已确认执行' : '操作已过期，请重新提出请求'}</small>`}</div>` : ''}</div>`).join('') : '<div class="empty-state">可以问：“现在有几个人在线？”或“@某账号上次什么时候登录？”</div>';
+    $('#butlerThread').scrollTop = $('#butlerThread').scrollHeight;
+    $('#butlerThread').querySelectorAll('[data-confirm-butler]').forEach(button => button.onclick = async () => {
+      button.disabled = true;
+      try { await request(`/api/admin/butler/actions/${button.dataset.confirmButler}/confirm`, { method: 'POST' }); notice('#butlerNotice', '权限已更新并写入操作记录。'); await refreshButler(); await refreshAdmin(); }
+      catch (error) { notice('#butlerNotice', error.message); button.disabled = false; }
+    });
+  }
+
+  async function refreshButler() { butlerSnapshot = await request('/api/admin/butler'); renderButler(); }
+
   function renderAdmin() {
     if (!adminSnapshot) return;
     $('#adminWorkspace').hidden = false;
@@ -51,6 +66,7 @@
     });
     $('#healthReports').innerHTML = reports.length ? reports.map(report => `<div class="health-report ${report.severity}"><strong>${escape(report.day)} · ${report.severity === 'warning' ? '需要关注' : report.systemLogin?.status === 'unavailable' ? '部分可见' : '正常'}</strong><small>站内登录：成功 ${report.loginSuccess} 次 / 失败 ${report.loginFailed} 次 · SSH：${report.systemLogin?.status === 'available' ? `成功 ${report.systemLogin.accepted} 次 / 失败 ${report.systemLogin.failed} 次` : '日志不可见或无记录'} · 空闲内存 ${report.memory.freeMB} / ${report.memory.totalMB} MB · 数据盘 ${report.disk ? `${report.disk.freeGB} / ${report.disk.totalGB} GB` : '不可见'} · 系统负载 ${report.loadAverage.join(' / ')}</small><small>${escape(report.notes)}${report.suspicious.length ? ` 高失败来源：${report.suspicious.map(item => `${escape(item.address)} (${item.count})`).join('、')}` : ''}</small></div>`).join('') : '<div class="empty-state">暂无巡检报告。</div>';
     $('#runAiReview').disabled = !configured || !settings.assistantEnabled || reviewRunning;
+    $('#butlerReviewNow').disabled = !configured || !settings.assistantEnabled || reviewRunning;
     $('#runAiReview').textContent = pricing.peak ? '立即巡检 · 高峰价 ↗' : '运行 AI 巡检 ↗';
     $('#runAiReview').title = !configured ? '先在服务器配置 DeepSeek API Key' : !settings.assistantEnabled ? '先保存并开启全站 AI' : '';
     $('#aiReviews').innerHTML = reviews.length ? reviews.map(review => `<article class="ai-review ${escape(review.risk || '')}"><header><strong>${escape(review.day)} · ${review.source === 'auto' ? '自动巡检' : '手动巡检'} · ${review.status === 'completed' ? '已完成' : review.status === 'running' ? '运行中' : '失败'}</strong><small>${dateText(review.createdAt)}</small></header><p>${escape(review.summary || review.error || '正在分析服务器汇总指标…')}</p>${review.proposedActions?.length ? `<small class="action-line">AI 建议：清除已过期的登录会话</small>` : ''}${review.executedActions?.length ? `<small class="action-line">已执行安全清理：移除 ${review.executedActions[0].removed} 个过期会话</small>` : review.proposedActions?.length ? '<small class="action-line">尚未执行；可由管理员开启安全清理后再次试运行</small>' : ''}</article>`).join('') : '<div class="empty-state">还没有 AI 巡检记录。配置密钥并开启 AI 后可手动试运行。</div>';
@@ -66,11 +82,13 @@
     const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Shanghai', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
     $('#workspaceGreeting').textContent = hour < 11 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
     $('#workspaceDate').textContent = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    await refresh(); if (account.user.role === 'admin') await refreshAdmin();
+    await refresh(); if (account.user.role === 'admin') { await refreshAdmin(); await refreshButler(); }
     $('#plannerForm').onsubmit = async event => { event.preventDefault(); try { await request('/api/workspace/planner', { method: 'POST', body: JSON.stringify({ title: $('#plannerTitle').value, dueAt: $('#plannerDue').value || null }) }); event.target.reset(); await refresh(); } catch (error) { alert(error.message); } };
     $('#sendOffPeak').onchange = () => { $('#assistantForm button').textContent = snapshot.assistant.pricing.peak && $('#sendOffPeak').checked ? '低谷发送 ↗' : '发送 ↗'; };
     $('#assistantForm').onsubmit = async event => { event.preventDefault(); const message = $('#assistantMessage').value.trim(); if (!message) return; const button = $('#assistantForm button'); button.disabled = true; button.textContent = '处理中…'; try { await request('/api/workspace/assistant', { method: 'POST', body: JSON.stringify({ message, sendMode: $('#sendOffPeak').checked ? 'offpeak' : 'now' }) }); $('#assistantMessage').value = ''; await refresh(); if (adminSnapshot) await refreshAdmin(); } catch (error) { alert(error.message); } finally { button.disabled = !(snapshot.assistant.allowed && snapshot.assistant.enabled && snapshot.assistant.configured); button.textContent = snapshot.assistant.pricing.peak && $('#sendOffPeak').checked ? '低谷发送 ↗' : '发送 ↗'; } };
-    $('#assistantSettingsForm').onsubmit = async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); for (const key of Object.keys(data)) data[key] = ['assistantEnabled','assistantAutoReview','assistantAutoMaintenance'].includes(key) ? data[key] === 'true' : Number(data[key]); try { await request('/api/admin/assistant', { method: 'PATCH', body: JSON.stringify(data) }); notice('#settingsNotice', '全站设置已保存'); await refreshAdmin(); await refresh(); } catch (error) { notice('#settingsNotice', error.message); } };
+    $('#assistantSettingsForm').onsubmit = async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target)); for (const key of Object.keys(data)) data[key] = key === 'assistantReviewFrequency' ? data[key] : ['assistantEnabled','assistantAutoMaintenance'].includes(key) ? data[key] === 'true' : Number(data[key]); try { await request('/api/admin/assistant', { method: 'PATCH', body: JSON.stringify(data) }); notice('#settingsNotice', '全站设置已保存'); await refreshAdmin(); await refresh(); } catch (error) { notice('#settingsNotice', error.message); } };
+    $('#butlerForm').onsubmit = async event => { event.preventDefault(); const message = $('#butlerMessage').value.trim(); if (!message) return; const button = $('#butlerForm button'); button.disabled = true; notice('#butlerNotice', '正在查询…'); try { await request('/api/admin/butler', { method: 'POST', body: JSON.stringify({ message }) }); $('#butlerMessage').value = ''; notice('#butlerNotice', ''); await refreshButler(); await refreshAdmin(); } catch (error) { notice('#butlerNotice', error.message); } finally { button.disabled = false; } };
+    $('#butlerReviewNow').onclick = () => { $('#runAiReview').click(); $('#reviewNotice').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
     $('#runHealth').onclick = async () => { try { await request('/api/admin/health/run', { method: 'POST' }); await refreshAdmin(); } catch (error) { alert(error.message); } };
     $('#runAiReview').onclick = async () => { const button = $('#runAiReview'); button.disabled = true; notice('#reviewNotice', 'AI 正在分析今日巡检汇总…'); try { await request('/api/admin/assistant/review', { method: 'POST' }); notice('#reviewNotice', 'AI 巡检已完成，记录显示在下方。'); await refreshAdmin(); await refresh(); } catch (error) { notice('#reviewNotice', error.message); await refreshAdmin(); } finally { button.disabled = !adminSnapshot?.configured || !adminSnapshot?.settings.assistantEnabled; } };
     setInterval(() => { if (!document.hidden) refresh().catch(console.error); }, 60_000);

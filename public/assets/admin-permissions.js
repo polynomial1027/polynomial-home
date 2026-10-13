@@ -40,6 +40,20 @@ async function initPermissionAdmin() {
     });
   });
   await Promise.all([reloadPermissionUsers(), loadAdminDrive()]);
+  const requestedUser = new URLSearchParams(location.search).get('editUser');
+  if (requestedUser && permissionUsers.some(user => user.id === requestedUser)) {
+    const list = document.querySelector('#userList');
+    const openRequested = () => {
+      const button = [...list.querySelectorAll('[data-edit-user]')].find(item => item.dataset.editUser === requestedUser);
+      if (!button) return false;
+      button.click();
+      return true;
+    };
+    if (!openRequested()) {
+      const observer = new MutationObserver(() => { if (openRequested()) observer.disconnect(); });
+      observer.observe(list, { childList: true, subtree: true });
+    }
+  }
   document.querySelector('#refreshAdminDrive').onclick = loadAdminDrive;
   document.querySelector('#editUserForm').addEventListener('submit', savePermissions, true);
 }

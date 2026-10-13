@@ -18,9 +18,10 @@ const { createRecoveryRequest, consumeRecoveryRequest } = require('./lib/passwor
 const assistant = require('./lib/assistant');
 const chatService = require('./lib/chat-service');
 const plannerService = require('./lib/planner');
+const adminButler = require('./lib/admin-butler');
 const { priceWindow, safeOffPeakStart } = require('./lib/pricing');
 const { generateReport } = require('./lib/health');
-const { runReview } = require('./lib/maintenance');
+const { runReview, autoReviewDue } = require('./lib/maintenance');
 
 const execFileAsync = promisify(execFile);
 
@@ -401,7 +402,7 @@ function pruneFeedback() {
 }
 
 async function api(req, res, url) {
-  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname === '/api/admin/health/run')) {
+  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname.startsWith('/api/admin/butler') || url.pathname === '/api/admin/health/run')) {
     const origin = req.headers.origin;
     if (origin) {
       let sameOrigin = false;
@@ -481,7 +482,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
-    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), model: assistantModel, pricing: priceWindow(new Date(), assistantModel), limits: assistant.limits(state, user), usage: assistant.usage(state, user.id), queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: priceWindow(new Date(), assistantModel), limits: assistant.limits(state, user), usage: assistant.usage(state, user.id), queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
   }
   if (url.pathname === '/api/workspace/brief/seen' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
@@ -535,7 +536,7 @@ async function api(req, res, url) {
   if (url.pathname === '/api/admin/assistant' && req.method === 'PATCH') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
     Object.assign(state.settings, assistant.validateSettings(await body(req))); save(state);
-    if (state.settings.assistantAutoReview && state.settings.assistantEnabled) maybeAutoReview().catch(error => console.error('AI maintenance review error:', error.message));
+    if (state.settings.assistantEnabled) maybeAutoReview().catch(error => console.error('AI maintenance review error:', error.message));
     return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/admin/assistant/review' && req.method === 'POST') {
@@ -543,6 +544,42 @@ async function api(req, res, url) {
     if (!assistantKey || !state.settings.assistantEnabled) return json(res, 503, { error: '请先配置 API 密钥并开启 AI 对话' });
     const review = await performMaintenanceReview(admin);
     return json(res, review?.status === 'completed' ? 200 : 502, { review, error: review?.status === 'failed' ? review.error : undefined });
+  }
+  if (url.pathname === '/api/admin/butler' && req.method === 'GET') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    return json(res, 200, { chats: state.adminButlerChats.filter(item => item.adminId === admin.id).slice(-30), actions: state.adminButlerActions.filter(item => item.adminId === admin.id).slice(-30).map(item => ({ id: item.id, targetId: item.targetId, targetName: state.users.find(user => user.id === item.targetId)?.displayName || '已删除用户', permission: item.permission, value: item.value, status: item.status === 'pending' && Date.now() - new Date(item.createdAt).getTime() >= 10 * 60_000 ? 'expired' : item.status })) });
+  }
+  if (url.pathname === '/api/admin/butler' && req.method === 'POST') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    const data = await body(req), message = String(data.message || '').trim();
+    if (!message || message.length > 1000) return json(res, 400, { error: '请输入 1–1000 字的问题' });
+    const now = Date.now();
+    const onlineCount = state.users.filter(user => user.active && (now - new Date(userPresence.get(user.id)?.lastSeenAt || 0).getTime() < 120_000 || [...goWss.clients, ...wss.clients].some(client => client.readyState === 1 && client.user?.id === user.id))).length;
+    let result = adminButler.localAnswer({ message, state, onlineCount, admin });
+    if (!result) {
+      if (!assistantKey || !state.settings.assistantEnabled) return json(res, 503, { error: 'AI 管家需要先开启 DeepSeek；在线人数和登录记录查询仍可用' });
+      const report = generateReport(state, save, new Date(), true), review = state.assistantReviews.find(item => item.status === 'completed');
+      const context = { at: new Date().toISOString(), activeAccounts: state.users.filter(user => user.active).length, recentlyActiveAccounts: onlineCount, report: report ? { day: report.day, severity: report.severity, notes: report.notes, loginSuccess: report.loginSuccess, loginFailed: report.loginFailed, memory: report.memory, disk: report.disk, loadAverage: report.loadAverage, systemLogin: report.systemLogin } : null, aiReview: review ? { day: review.day, summary: review.summary, risk: review.risk } : null };
+      try { result = await adminButler.answerWithAi({ state, save, admin, message, context, key: assistantKey, model: assistantModel }); }
+      catch (error) { return json(res, error.code === 'AI_LIMIT' ? 429 : 502, { error: error.message }); }
+    }
+    const entry = { id: crypto.randomUUID(), adminId: admin.id, message, reply: result.reply, link: result.link || null, actionId: result.action?.id || null, at: new Date().toISOString() };
+    state.adminButlerChats.push(entry); state.adminButlerChats = state.adminButlerChats.slice(-300); save(state);
+    return json(res, 200, { entry, action: result.action ? { id: result.action.id, targetId: result.action.targetId, targetName: state.users.find(user => user.id === result.action.targetId)?.displayName, permission: result.action.permission, value: result.action.value } : null });
+  }
+  const butlerActionMatch = url.pathname.match(/^\/api\/admin\/butler\/actions\/([a-f0-9-]+)\/confirm$/);
+  if (butlerActionMatch && req.method === 'POST') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    const action = state.adminButlerActions.find(item => item.id === butlerActionMatch[1] && item.adminId === admin.id && item.status === 'pending');
+    if (!action || Date.now() - new Date(action.createdAt).getTime() >= 10 * 60_000) return json(res, 404, { error: '操作已过期，请重新向管家提出请求' });
+    const target = state.users.find(item => item.id === action.targetId && item.active && item.role === 'member');
+    if (!target || !Object.hasOwn(adminButler.permissionLabels, action.permission)) return json(res, 409, { error: '账号或权限已变化，请重新提出请求' });
+    if ((target.permissions?.[action.permission] === true) !== action.expectedValue) return json(res, 409, { error: '权限在核对后发生变化，请重新提出请求' });
+    target.permissions = updatePermissions(target.permissions, { [action.permission]: action.value });
+    if (action.permission === 'accessChat' && !action.value) wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'chat access disabled'); });
+    action.status = 'confirmed'; action.confirmedAt = new Date().toISOString();
+    appendAudit({ user: admin, action: 'butler-permission-change', req, detail: `${target.username} ${action.permission}=${action.value}` }); save(state);
+    return json(res, 200, { ok: true, user: publicUser(target) });
   }
   const assistantUserMatch = url.pathname.match(/^\/api\/admin\/assistant\/users\/([a-f0-9-]+)$/);
   if (assistantUserMatch && req.method === 'PATCH') {
@@ -1199,7 +1236,7 @@ setInterval(() => { try { goService.maintenance(); } catch (error) { console.err
 setInterval(() => { if (pruneFeedback()) save(state); }, 3_600_000).unref();
 generateReport(state, save);
 async function maybeAutoReview() {
-  if (!assistantKey || !state.settings.assistantEnabled || !state.settings.assistantAutoReview || maintenanceReviewRunning || !safeOffPeakStart(new Date(), assistantModel)) return;
+  if (!assistantKey || !state.settings.assistantEnabled || !autoReviewDue(state) || maintenanceReviewRunning || !safeOffPeakStart(new Date(), assistantModel)) return;
   const admin = state.users.find(item => item.role === 'admin' && item.active);
   if (!admin) return;
   try { await performMaintenanceReview(admin, 'auto'); } catch (error) { console.error('AI maintenance review error:', error.message); }

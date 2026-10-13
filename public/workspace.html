@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>个人空间 · Polynomial Server</title>
-  <link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/workspace.css"><link rel="stylesheet" href="/assets/workspace-daily.css"><link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/workspace.css"><link rel="stylesheet" href="/assets/workspace-daily.css"><link rel="stylesheet" href="/assets/workspace-butler.css"><link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
 </head>
 <body>
   <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><nav class="nav-links" id="navLinks"></nav></div></header>
@@ -50,9 +50,10 @@
     <section class="workspace-card admin-workspace" id="adminWorkspace" hidden>
       <div class="card-heading"><div><span class="workspace-icon">◉</span><div><small>ADMIN CONTROL</small><h2>AI 流量控制与服务器巡检</h2></div></div><a href="/admin.html">管理后台 ↗</a></div>
       <div class="admin-flow"><div><b>01</b><strong>配置密钥</strong><small>服务器私有环境变量</small></div><div><b>02</b><strong>设置额度</strong><small>全站与个人双重上限</small></div><div><b>03</b><strong>试运行巡检</strong><small>查看 AI 建议与执行记录</small></div></div>
+      <div class="butler-panel" id="butlerPanel"><div class="card-heading"><div><span class="workspace-icon">✧</span><div><small>SERVER CONCIERGE</small><h2>我的服务器管家</h2></div></div><button type="button" id="butlerReviewNow" class="button-secondary">立即 AI 巡检</button></div><p class="card-intro">问我在线人数、某位用户上次登录时间或服务器状况。权限变更会先显示核对卡片，确认后才执行。</p><div id="butlerThread" class="butler-thread" aria-live="polite"></div><form id="butlerForm" class="assistant-form"><textarea id="butlerMessage" rows="2" maxlength="1000" placeholder="例如：现在有几个人在线？给 @alice 开通聊天权限"></textarea><button type="submit">问管家 ↗</button></form><p id="butlerNotice" class="workspace-note" role="status"></p></div>
       <div class="admin-workspace-grid"><div><h3>全站开关与额度</h3><p id="providerState" class="workspace-note"></p><form id="assistantSettingsForm" class="limits-form">
         <label>开放 AI 对话<select name="assistantEnabled"><option value="false">关闭</option><option value="true">开放</option></select></label>
-        <label>每日自动 AI 巡检<select name="assistantAutoReview"><option value="false">关闭</option><option value="true">开启</option></select></label>
+        <label>自动 AI 巡检间隔<select name="assistantReviewFrequency"><option value="off">关闭</option><option value="weekly">每周一次</option><option value="daily">每天一次</option></select></label>
         <label>自动执行安全清理<select name="assistantAutoMaintenance"><option value="false">仅建议，不执行</option><option value="true">执行允许的安全清理</option></select></label>
         <label>全站每日 token<input name="assistantDailyTokens" type="number" min="0" required></label><label>全站每月 token<input name="assistantMonthlyTokens" type="number" min="0" required></label>
         <label>全站每日次数<input name="assistantDailyRequests" type="number" min="0" required></label><label>全站每月次数<input name="assistantMonthlyRequests" type="number" min="0" required></label>
@@ -60,7 +61,7 @@
         <label>用户默认每日次数<input name="assistantDefaultUserDailyRequests" type="number" min="0" required></label><label>用户默认每月次数<input name="assistantDefaultUserMonthlyRequests" type="number" min="0" required></label>
         <label>单次最大输出 token<input name="assistantMaxOutputTokens" type="number" min="1" max="4096" required></label><button type="submit">保存全站设置</button></form><p id="settingsNotice" role="status"></p></div>
         <div><h3>逐用户额度</h3><div id="assistantUsers"></div></div></div>
-      <div class="health-panel"><div class="card-heading"><div><span class="workspace-icon">◎</span><div><small>DAILY REVIEW</small><h2>服务器巡检</h2></div></div><div class="review-actions"><button id="runHealth" type="button" class="button-secondary">刷新基础报告</button><button id="runAiReview" type="button">运行 AI 巡检 ↗</button></div></div><p class="workspace-note">基础报告只读，每日自动 AI 巡检只在空闲时段运行。手动巡检会立即调用；AI 仅分析汇总指标。只有管理员开启“自动执行安全清理”后，系统才允许清除已过期的登录会话；不会运行模型生成的命令。</p><p id="reviewNotice" class="workspace-note" role="status"></p><div id="healthReports"></div><h3>AI 巡检与执行记录</h3><div id="aiReviews"></div></div>
+      <div class="health-panel"><div class="card-heading"><div><span class="workspace-icon">◎</span><div><small>DAILY REVIEW</small><h2>服务器巡检</h2></div></div><div class="review-actions"><button id="runHealth" type="button" class="button-secondary">刷新基础报告</button><button id="runAiReview" type="button">运行 AI 巡检 ↗</button></div></div><p class="workspace-note">基础报告只读，自动 AI 巡检按设置的间隔在空闲时段运行。手动巡检会立即调用；AI 仅分析汇总指标。只有管理员开启“自动执行安全清理”后，系统才允许清除已过期的登录会话；不会运行模型生成的命令。</p><p id="reviewNotice" class="workspace-note" role="status"></p><div id="healthReports"></div><h3>AI 巡检与执行记录</h3><div id="aiReviews"></div></div>
     </section>
   </main>
   <dialog id="dailyBriefDialog" class="daily-brief-dialog" aria-labelledby="dailyBriefTitle"><div class="daily-brief-head"><div><small>DAILY REVIEW · ASIA/SHANGHAI</small><h2 id="dailyBriefTitle">今日回顾 · 明日安排</h2><p id="dailyBriefDate"></p></div><button type="button" id="briefClose" aria-label="关闭每日回顾">×</button></div><div class="daily-brief-body"><section><h3>今天已完成</h3><div id="briefCompleted"></div></section><section><h3>明天继续哪些计划？</h3><p>勾选要保留的安排，取消勾选的事项仍保存在计划中，但不会列入明日安排。</p><div id="briefTomorrow"></div></section><section id="briefServerSection" hidden><h3>服务器每日巡检</h3><div id="briefServer"></div></section></div><footer><span id="briefNotice" role="status"></span><button type="button" id="briefSave">保存明日安排</button></footer></dialog>

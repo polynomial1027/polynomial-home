@@ -31,7 +31,8 @@
     $('#briefServerSection').hidden = snapshot.user.role !== 'admin';
     if (snapshot.user.role === 'admin') {
       const report = brief.report, review = brief.review;
-      $('#briefServer').innerHTML = `<div class="brief-row">基础检查：${report ? escape(report.notes || report.severity) : '今日报告准备中'}</div><div class="brief-row">AI 巡检：${review ? escape(review.status === 'completed' ? review.summary : review.error || '运行中') : '等待空闲时段自动检查（需开启每日自动 AI 巡检）'}</div>`;
+      const frequency = snapshot.assistant.reviewFrequency;
+      $('#briefServer').innerHTML = `<div class="brief-row">基础检查：${report ? escape(report.notes || report.severity) : '今日报告准备中'}</div><div class="brief-row">AI 巡检：${review ? `${escape(review.day)} · ${escape(review.status === 'completed' ? review.summary : review.error || '运行中')}` : frequency === 'off' ? '自动巡检已关闭；可在管理区设置每天或每周' : `按${frequency === 'weekly' ? '每周' : '每天'}计划在空闲时段运行；此处显示本次已完成的记录`}</div>`;
     }
   }
 
