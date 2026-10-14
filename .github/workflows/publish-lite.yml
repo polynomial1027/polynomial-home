@@ -1,0 +1,27 @@
+name: Publish lightweight trial
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ai-framework]
+    paths: ['.github/workflows/publish-lite.yml']
+permissions: {contents: write, actions: read}
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify source build
+        env: {GH_TOKEN: '${{ github.token }}', GH_REPO: polynomial1027/polynomial-home}
+        run: test "$(gh run view 38513660707 --json conclusion --jq .conclusion)" = success
+      - name: Download and publish lightweight installers
+        env: {GH_TOKEN: '${{ github.token }}', GH_REPO: polynomial1027/polynomial-home}
+        run: |
+          gh run download 38513660707 --dir artifacts
+          for platform in mac win linux; do
+            for arch in x64 arm64; do
+              case "$platform" in mac) extension=dmg;; win) extension=exe;; linux) extension=deb;; esac
+              source=$(find "artifacts/lite-$platform-$arch" -type f -name "*.$extension" | head -1)
+              target="Polynomial-0.3.3-$platform-$arch-lite.$extension"
+              cp "$source" "$target"
+              gh release upload client-v0.3.3 "$target" --clobber
+            done
+          done
