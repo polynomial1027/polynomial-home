@@ -22,6 +22,8 @@ const assistant = require('./lib/assistant');
 const aiRecords = require('./lib/ai-records');
 const chatService = require('./lib/chat-service');
 const plannerService = require('./lib/planner');
+const reminders = require('./lib/reminders');
+const webpush = require('web-push');
 const adminButler = require('./lib/admin-butler');
 const { priceWindow, safeOffPeakStart } = require('./lib/pricing');
 const { generateReport } = require('./lib/health');
@@ -35,6 +37,8 @@ const HOST = process.env.HOST || '127.0.0.1';
 const nestedPublicDir = path.join(__dirname, 'public');
 const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nestedPublicDir : __dirname;
 const state = load();
+const pushKeys = reminders.vapidKeys(dataDir);
+webpush.setVapidDetails('https://polynomial-server.tail722ac8.ts.net/', pushKeys.publicKey, pushKeys.privateKey);
 const assistantKey = process.env.DEEPSEEK_API_KEY || '';
 const assistantModel = process.env.DEEPSEEK_MODEL || 'deepseek-flash';
 let maintenanceReviewRunning = false;
@@ -509,6 +513,20 @@ async function api(req, res, url) {
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
     return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+  }
+  if (url.pathname === '/api/workspace/reminders' && req.method === 'GET') {
+    const user = requireUser(req, res); if (!user) return;
+    return json(res, 200, { publicKey: pushKeys.publicKey, subscriptions: (state.pushSubscriptions || []).filter(item => item.userId === user.id).map(item => item.endpoint) });
+  }
+  if (url.pathname === '/api/workspace/reminders' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    try { reminders.subscribe(state, save, user, (await body(req)).subscription); return json(res, 200, { ok: true }); }
+    catch (error) { return json(res, 400, { error: error.message }); }
+  }
+  if (url.pathname === '/api/workspace/reminders' && req.method === 'DELETE') {
+    const user = requireUser(req, res); if (!user) return;
+    reminders.unsubscribe(state, save, user, String((await body(req)).endpoint || ''));
+    return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/workspace/brief/seen' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
@@ -1302,6 +1320,16 @@ maybeAutoReview().catch(error => console.error('AI maintenance startup error:', 
 maybeSendQueuedChats().catch(error => console.error('Queued AI chat startup error:', error.message));
 setInterval(() => { try { generateReport(state, save); maybeAutoReview().catch(error => console.error('AI maintenance review error:', error.message)); } catch (error) { console.error('Health report error:', error.message); } }, 60_000).unref();
 setInterval(() => { maybeSendQueuedChats().catch(error => console.error('Queued AI chat error:', error.message)); }, 60_000).unref();
+let reminderDispatching = false;
+async function dispatchReminders() {
+  if (reminderDispatching) return;
+  reminderDispatching = true;
+  try { await reminders.deliverDue({ state, save }); }
+  catch (error) { console.error('Reminder dispatch error:', error.message); }
+  finally { reminderDispatching = false; }
+}
+dispatchReminders();
+setInterval(dispatchReminders, 15_000).unref();
 
 server.listen(PORT, HOST, () => {
   console.log(`Polynomial Server: http://${HOST}:${PORT}`);

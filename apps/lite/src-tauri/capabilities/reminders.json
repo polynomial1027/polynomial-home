@@ -1,0 +1,1 @@
+{"$schema":"../gen/schemas/remote-schema.json","identifier":"reminders","description":"Only the Polynomial site can request system notification permission and show reminders.","windows":["main"],"remote":{"urls":["https://polynomial-server.tail722ac8.ts.net/*"]},"permissions":["notification:default"]}

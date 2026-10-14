@@ -7,6 +7,7 @@ fn arch() -> &'static str { if cfg!(target_arch="aarch64") {"arm64"} else {"x64"
 fn main() {
  tauri::Builder::default()
   .plugin(tauri_plugin_opener::init())
+  .plugin(tauri_plugin_notification::init())
   .setup(|app| {
    let version=app.package_info().version.to_string();
    let home=MenuItem::with_id(app,"home","个人空间",true,None::<&str>)?;
