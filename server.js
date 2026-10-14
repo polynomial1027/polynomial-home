@@ -1,3 +1,4 @@
+const clientReleases = require('./lib/client-releases');
 const resources = require('./lib/resources');
 const http = require('node:http');
 const fs = require('node:fs');
@@ -403,7 +404,7 @@ function pruneFeedback() {
 }
 
 async function api(req, res, url) {
-  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname.startsWith('/api/admin/butler') || url.pathname === '/api/admin/health/run' || url.pathname.startsWith('/api/downloads'))) {
+  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname.startsWith('/api/admin/butler') || url.pathname === '/api/admin/health/run' || url.pathname.startsWith('/api/downloads') || url.pathname.startsWith('/api/client/releases'))) {
     const origin = req.headers.origin;
     if (origin) {
       let sameOrigin = false;
@@ -411,7 +412,10 @@ async function api(req, res, url) {
       if (!sameOrigin) return json(res, 403, { error: '请求来源不匹配' });
     }
   }
-  if (url.pathname === '/api/downloads' && req.method === 'GET') return json(res, 200, { resources: (state.resourceDownloads || []).map(item => resources.view(state, item)).filter(Boolean) });
+  if (url.pathname === '/api/client/releases' && req.method === 'GET') return json(res, 200, { uiVersion: require('./package.json').version, ...clientReleases.manifest(state) });
+  const clientReleaseMatch = url.pathname.match(/^\/api\/client\/releases\/([^/]+)$/);
+  if (clientReleaseMatch && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; try { const release = clientReleases.update(state, clientReleaseMatch[1], await body(req)); save(state); return json(res, 200, { release }); } catch (error) { return json(res, 400, { error: error.message }); } }
+  if (url.pathname === '/api/downloads' && req.method === 'GET') return json(res, 200, { releases: clientReleases.manifest(state), resources: (state.resourceDownloads || []).map(item => resources.view(state, item)).filter(Boolean) });
   if (url.pathname === '/api/downloads' && req.method === 'POST') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
     try { const item = resources.publish(state, await body(req), admin.id); save(state); return json(res, 201, { resource: item }); } catch (error) { return json(res, 400, { error: error.message }); }
@@ -419,6 +423,8 @@ async function api(req, res, url) {
   const resourceContent = url.pathname.match(/^\/api\/downloads\/([a-f0-9-]+)\/content$/);
   if (resourceContent && req.method === 'GET') {
     const item = (state.resourceDownloads || []).find(entry => entry.id === resourceContent[1]);
+    if (item?.category === 'client' && state.clientReleases?.find(release => release.version === item.version)?.status === 'withdrawn') return json(res, 410, { error: '此客户端版本已停止分发，请选择推荐版本' });
+    if (item?.category === 'client' && ['planned','building'].includes(state.clientReleases?.find(release => release.version === item.version)?.status)) return json(res, 409, { error: '此版本尚未开放下载' });
     const file = item && state.driveFiles.find(entry => entry.id === item.fileId && entry.scope === 'public');
     if (!file || !/^[a-f0-9-]+$/.test(file.storedName)) return json(res, 404, { error: '资源不存在或已下架' });
     const target = path.join(driveDir, file.storedName); if (!fs.existsSync(target)) return json(res, 404, { error: '资源文件不存在' });

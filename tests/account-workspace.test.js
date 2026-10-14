@@ -49,12 +49,17 @@ test('password edit invalidates old login, persists across restart, and member A
     const uploaded = await fetch(`http://127.0.0.1:${port}/api/drive/upload?scope=public`, { method: 'POST', headers: { cookie: admin.cookie }, body: uploadData });
     assert.equal(uploaded.status, 201);
     const file = (await uploaded.json()).file;
-    const published = await call('/api/downloads', 'POST', { fileId: file.id, title: 'Test client', platform: 'android', category: 'client' }, admin.cookie);
+    const published = await call('/api/downloads', 'POST', { fileId: file.id, title: 'Test client', platform: 'android', category: 'client', version: '0.3.1' }, admin.cookie);
     assert.equal(published.status, 201);
     const content = await fetch(`http://127.0.0.1:${port}${published.body.resource.downloadUrl}`);
     assert.equal(await content.text(), 'test-client-bytes');
     assert.equal((await call('/api/downloads', 'POST', {fileId:file.id,title:'unauthorized',platform:'android'})).status, 401);
     assert.equal((await call('/api/downloads')).body.resources.length, 1);
+    assert.equal((await call('/api/client/releases')).body.recommendedVersion, '0.3.1');
+    assert.equal((await call('/api/client/releases/0.3.1', 'PATCH', {status:'withdrawn'})).status,401);
+    await call('/api/client/releases/0.3.1', 'PATCH', {status:'withdrawn',notes:'test retirement'}, admin.cookie);
+    assert.equal((await fetch(`http://127.0.0.1:${port}${published.body.resource.downloadUrl}`)).status,410);
+    await call('/api/client/releases/0.3.1', 'PATCH', {status:'testing',notes:'test restored'}, admin.cookie);
     await stop(); await start();
     const logged = await call('/api/login', 'POST', { username: 'test-member', password: 'new-password' });
     assert.equal(logged.status, 200);

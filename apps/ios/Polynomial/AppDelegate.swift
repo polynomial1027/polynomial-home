@@ -13,7 +13,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 final class ServerController: UIViewController, WKNavigationDelegate, WKUIDelegate {
-    let web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+    let web: WKWebView = {
+        let config = WKWebViewConfiguration()
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        config.applicationNameForUserAgent = "PolynomialClient/\(version) (ios; arm64)"
+        return WKWebView(frame: .zero, configuration: config)
+    }()
     var server = URL(string: UserDefaults.standard.string(forKey: "server") ?? "https://polynomial-server.tail722ac8.ts.net")!
     override func viewDidLoad() {
         super.viewDidLoad()

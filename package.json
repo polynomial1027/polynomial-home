@@ -1,13 +1,13 @@
 {
   "name": "polynomial-server-home",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Polynomial Server portal with collaboration, learning, games, Go multiplayer and KataGo",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "recovery-code": "node scripts/create-password-recovery.js",
-    "check": "node --check server.js && node --check lib/store.js && node --check lib/assistant.js && node --check lib/chat-service.js && node --check lib/planner.js && node --check lib/admin-butler.js && node --check lib/pricing.js && node --check lib/health.js && node --check lib/maintenance.js && node --check lib/password-recovery.js && node --check scripts/create-password-recovery.js && node --check lib/go-engine.js && node --check lib/go-service.js && node --check lib/katago.js && node --check lib/server-i18n.js && node --check lib/python-course.js && node --check lib/python-course-en.js && node --check public/assets/i18n.js && node --check public/assets/site.js && node --check public/assets/workspace.js && node --check public/assets/workspace-math.js && node --check public/assets/workspace-daily.js && node --check public/assets/learning.js && node --check public/assets/games/match3.js && node --check public/assets/admin-permissions.js && node --check public/assets/admin-go.js && node --check lib/resources.js && node --check public/assets/app/app.js && node --check public/assets/app/download.js && node --check apps/desktop/main.cjs",
+    "check": "node --check server.js && node --check lib/store.js && node --check lib/assistant.js && node --check lib/chat-service.js && node --check lib/planner.js && node --check lib/admin-butler.js && node --check lib/pricing.js && node --check lib/health.js && node --check lib/maintenance.js && node --check lib/password-recovery.js && node --check scripts/create-password-recovery.js && node --check lib/go-engine.js && node --check lib/go-service.js && node --check lib/katago.js && node --check lib/server-i18n.js && node --check lib/python-course.js && node --check lib/python-course-en.js && node --check public/assets/i18n.js && node --check public/assets/site.js && node --check public/assets/workspace.js && node --check public/assets/workspace-math.js && node --check public/assets/workspace-daily.js && node --check public/assets/learning.js && node --check public/assets/games/match3.js && node --check public/assets/admin-permissions.js && node --check public/assets/admin-go.js && node --check lib/client-releases.js && node --check lib/resources.js && node --check public/assets/app/app.js && node --check public/assets/app/download.js && node --check apps/desktop/main.cjs",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
