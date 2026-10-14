@@ -23,7 +23,7 @@
         <div id="assistantQueue" class="assistant-queue"></div>
         <form id="assistantForm" class="assistant-form"><textarea id="assistantMessage" rows="2" maxlength="2000" placeholder="提出一个问题，或请我帮你整理计划…"></textarea><button type="submit">发送 ↗</button></form>
         <label class="send-mode" id="sendModeLabel"><input type="checkbox" id="sendOffPeak" checked><span>高峰期先排队，进入空闲时段后自动发送；取消勾选可立即发送。</span></label>
-        <p class="workspace-note">告诉助手“明天 9 点提醒我…”可自动加入计划与日历。AI 不会直接执行服务器命令或读取邮箱。每次调用均计入你的额度。</p>
+        <p class="workspace-note">告诉助手“明天 9 点提醒我…”可自动加入计划与日历。AI 不会直接执行服务器命令或读取邮箱。每次调用均计入你的额度；对话与用量会保存，站点管理员可查看以管理使用额度。</p>
       </section>
       <section class="workspace-card planner-card" id="plannerCard">
         <div class="card-heading"><div><span class="workspace-icon">▦</span><div><small>YOUR DAY</small><h2>计划与提醒</h2></div></div><span class="status-pill quiet" id="plannerCount">0 项</span></div>
@@ -49,6 +49,7 @@
     </div>
     <section class="workspace-card admin-workspace" id="adminWorkspace" hidden>
       <div class="card-heading"><div><span class="workspace-icon">◉</span><div><small>ADMIN CONTROL</small><h2>AI 流量控制与服务器巡检</h2></div></div><a href="/admin.html">管理后台 ↗</a></div>
+      <p><a class="button" href="/ai-records.html">查看用户 AI 使用记录 ↗</a> <span class="workspace-note">按用户和日期查询对话、Token 与估算费用。</span></p>
       <div class="admin-flow"><div><b>01</b><strong>配置密钥</strong><small>服务器私有环境变量</small></div><div><b>02</b><strong>设置额度</strong><small>全站与个人双重上限</small></div><div><b>03</b><strong>试运行巡检</strong><small>查看 AI 建议与执行记录</small></div></div>
       <div class="butler-panel" id="butlerPanel"><div class="card-heading"><div><span class="workspace-icon">✧</span><div><small>SERVER CONCIERGE</small><h2>我的服务器管家</h2></div></div><button type="button" id="butlerReviewNow" class="button-secondary">立即 AI 巡检</button></div><p class="card-intro">问我在线人数、某位用户上次登录时间或服务器状况。权限变更会先显示核对卡片，确认后才执行。</p><div id="butlerThread" class="butler-thread" aria-live="polite"></div><form id="butlerForm" class="assistant-form"><textarea id="butlerMessage" rows="2" maxlength="1000" placeholder="例如：现在有几个人在线？给 @alice 开通聊天权限"></textarea><button type="submit">问管家 ↗</button></form><p id="butlerNotice" class="workspace-note" role="status"></p></div>
       <div class="admin-workspace-grid"><div><h3>全站开关与额度</h3><p id="providerState" class="workspace-note"></p><form id="assistantSettingsForm" class="limits-form">

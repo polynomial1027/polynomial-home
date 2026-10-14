@@ -51,6 +51,9 @@ test('provider adapter sends bounded chat completion and reads reported usage', 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const result = await assistant.complete({ key: 'test-key', model: 'deepseek-flash', messages: [{ role: 'user', content: '你好' }], maxOutput: 128, endpoint: `http://127.0.0.1:${server.address().port}/chat/completions` });
-    assert.deepEqual(result, { content: '测试回答', tokens: 42 });
+    assert.equal(result.content, '测试回答');
+    assert.equal(result.tokens, 42);
+    assert.equal(result.usage.totalTokens, 42);
+    assert.equal(result.usage.inputTokens, null);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });

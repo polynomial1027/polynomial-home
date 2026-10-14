@@ -19,6 +19,7 @@ const { GoService } = require('./lib/go-service');
 const { KataGoManager } = require('./lib/katago');
 const { createRecoveryRequest, consumeRecoveryRequest } = require('./lib/password-recovery');
 const assistant = require('./lib/assistant');
+const aiRecords = require('./lib/ai-records');
 const chatService = require('./lib/chat-service');
 const plannerService = require('./lib/planner');
 const adminButler = require('./lib/admin-butler');
@@ -553,6 +554,26 @@ async function api(req, res, url) {
     const index = state.assistantQueuedChats.findIndex(item => item.id === queuedChatMatch[1] && item.userId === user.id && item.status === 'pending');
     if (index < 0) return json(res, 404, { error: '排队消息不存在或已开始发送' });
     state.assistantQueuedChats.splice(index, 1); save(state); return json(res, 200, { ok: true });
+  }
+  if (url.pathname === '/api/admin/assistant/records' && req.method === 'GET') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    try { const result = aiRecords.list(state, url.searchParams); appendAudit({ user: admin, action: 'ai-records-view', req, detail: `${result.date}; user=${url.searchParams.get('userId') || 'all'}; page=${result.page}` }); save(state); return json(res, 200, result); }
+    catch (error) { return json(res, 400, { error: error.message }); }
+  }
+  const aiRecordMatch = url.pathname.match(/^\/api\/admin\/assistant\/records\/([a-f0-9-]+)$/);
+  if (aiRecordMatch && req.method === 'GET') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    const record = aiRecords.detail(state, aiRecordMatch[1]); if (!record) return json(res, 404, { error: '记录不存在或已过保存期' });
+    appendAudit({ user: admin, action: 'ai-record-detail-view', req, detail: record.id }); save(state); return json(res, 200, { record });
+  }
+  if (url.pathname === '/api/admin/assistant/legacy-chats' && req.method === 'GET') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    try {
+      const report = aiRecords.list(state, url.searchParams), userId = url.searchParams.get('userId');
+      if (!userId) return json(res, 400, { error: '请先选择一位用户' });
+      const chats = state.assistantChats.filter(r => !r.usageRecordId && r.userId === userId && new Date(r.at) >= new Date(report.windowStart) && new Date(r.at) < new Date(report.windowEndExclusive)).map(({ role, content, at }) => ({ role, content, at }));
+      appendAudit({ user: admin, action: 'ai-legacy-chats-view', req, detail: `${report.date}; user=${userId}` }); save(state); return json(res, 200, { chats });
+    } catch (error) { return json(res, 400, { error: error.message }); }
   }
   if (url.pathname === '/api/admin/assistant' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return;
@@ -1136,7 +1157,8 @@ function staticFile(req, res, url) {
     res.writeHead(308, { Location: `${calculatorRoot}/`, 'Cache-Control': 'no-store' });
     return res.end();
   }
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python|workspace|app|download|offline)\.html$/.test(clean) || ['/app.webmanifest', '/app-sw.js'].includes(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
+  if (clean === '/ai-records.html' && currentUser(req)?.role !== 'admin') { res.writeHead(302, { Location: currentUser(req) ? '/workspace.html' : '/login.html?next=%2Fai-records.html', 'Cache-Control': 'no-store' }); return res.end(); }
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|ai-records|drive|learning|python|workspace|app|download|offline)\.html$/.test(clean) || ['/app.webmanifest', '/app-sw.js'].includes(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }

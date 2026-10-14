@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 使用记录 · 管理员</title><link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/ai-records.css"></head>
+<body><header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><nav class="nav-links" id="navLinks"></nav></div></header>
+<main class="records-shell"><div class="records-heading"><div><p class="eyebrow">ADMIN / AI ACTIVITY</p><h1>AI 使用记录<span>.</span></h1><p>查看谁使用了助手，以及每次对话如何消耗 Token。</p></div><a class="button" href="/workspace.html#adminWorkspace">额度与巡检 ↗</a></div>
+<form id="recordFilters" class="record-filters"><label>用户<select id="recordUser"><option value="">全部用户</option></select></label><label>日期 · 北京时间<input type="date" id="recordDate" required></label><button type="submit">查询记录</button><button type="button" class="secondary" id="recordToday">今天</button></form>
+<p id="recordWindow" class="records-muted"></p><p id="recordNotice" role="status"></p>
+<div id="recordSummary" class="record-summary"></div>
+<p class="records-note">输入 Token 包括本次提问、系统提示与带入的历史对话；输出可能包含模型推理 Token。费用按调用开始时保存的报价估算，以 DeepSeek 实际账单为准。失败或未返回用量的调用保留预留额度，不代表实际扣费。</p>
+<section class="records-panel"><div class="records-section-head"><h2>调用明细</h2><span id="recordCount"></span></div><div id="recordList"></div><div class="record-pagination"><button id="recordPrev" type="button" class="secondary">上一页</button><span id="recordPage"></span><button id="recordNext" type="button" class="secondary">下一页</button></div></section>
+<section id="recordLegacy" class="records-note" hidden><strong>更新前的聊天记录</strong><p>旧聊天内容没有与每次调用建立关联，无法准确追溯单次 Token 明细。请选择一位用户查看仍保存的当天聊天；已丢失的记录无法恢复。</p><button id="recordLegacyOpen" type="button" class="secondary">查看旧聊天</button></section>
+<p class="records-muted">仅管理员可访问；每次查询会记录在管理审计中。调用明细随用量记录保存最多 400 天。</p>
+</main>
+<dialog id="recordDialog" aria-labelledby="recordDialogTitle"><header><div><p class="eyebrow">CALL DETAILS</p><h2 id="recordDialogTitle">调用详情</h2></div><button id="recordClose" type="button" class="secondary" aria-label="关闭详情">关闭</button></header><div id="recordDetail"></div></dialog>
+<script src="/assets/site.js"></script><script src="/assets/ai-records.js"></script></body></html>

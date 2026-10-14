@@ -60,7 +60,13 @@ test('password edit invalidates old login, persists across restart, and member A
     await call('/api/client/releases/0.3.1', 'PATCH', {status:'withdrawn',notes:'test retirement'}, admin.cookie);
     assert.equal((await fetch(`http://127.0.0.1:${port}${published.body.resource.downloadUrl}`)).status,410);
     await call('/api/client/releases/0.3.1', 'PATCH', {status:'testing',notes:'test restored'}, admin.cookie);
-    await stop(); await start();
+    await stop();
+    const savedPath = path.join(directory, 'store.json'), saved = JSON.parse(fs.readFileSync(savedPath, 'utf8'));
+    const recordId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', day = require('../lib/assistant').dayKey();
+    saved.assistantUsage.push({ id: recordId, userId: member.body.user.id, day, month: day.slice(0,7), at: new Date().toISOString(), tokens: 123, requests: 1, status: 'completed', detail: { source: 'chat', model: 'test-model', messages: [{role:'user',content:'private member question'}], response: 'private member answer' } });
+    saved.assistantChats.push({userId:member.body.user.id,role:'user',content:'old member question',at:new Date().toISOString()});
+    fs.writeFileSync(savedPath, JSON.stringify(saved));
+    await start();
     const logged = await call('/api/login', 'POST', { username: 'test-member', password: 'new-password' });
     assert.equal(logged.status, 200);
     const workspace = await call('/api/workspace', 'GET', undefined, logged.cookie);
@@ -69,6 +75,21 @@ test('password edit invalidates old login, persists across restart, and member A
     assert.equal(workspace.body.assistant.limits, undefined);
     assert.equal((await call('/api/admin/butler', 'GET', undefined, logged.cookie)).status, 403);
     assert.equal((await call('/api/admin/assistant', 'GET', undefined, logged.cookie)).status, 403);
+    for (const route of ['/api/admin/assistant/records', '/api/admin/assistant/records/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '/api/admin/assistant/legacy-chats']) {
+      assert.equal((await call(route)).status, 401);
+      assert.equal((await call(route, 'GET', undefined, logged.cookie)).status, 403);
+    }
+    const freshAdmin = await call('/api/login', 'POST', { username: 'test-admin', password: 'test-admin-password' });
+    assert.equal((await call('/api/admin/assistant/records', 'GET', undefined, freshAdmin.cookie)).status, 200);
+    const records = await call(`/api/admin/assistant/records?userId=${member.body.user.id}`, 'GET', undefined, freshAdmin.cookie);
+    assert.equal(records.body.total, 1);
+    assert.equal(records.body.records[0].detail, undefined);
+    assert.equal((await call(`/api/admin/assistant/records/${recordId}`, 'GET', undefined, freshAdmin.cookie)).body.record.detail.response, 'private member answer');
+    assert.equal((await call(`/api/admin/assistant/legacy-chats?userId=${member.body.user.id}`, 'GET', undefined, freshAdmin.cookie)).body.chats[0].content, 'old member question');
+    assert.equal((await call('/api/admin/assistant/records?date=invalid', 'GET', undefined, freshAdmin.cookie)).status, 400);
+    const deniedPage = await fetch(`http://127.0.0.1:${port}/ai-records.html`, { headers: { cookie: logged.cookie }, redirect: 'manual' });
+    assert.equal(deniedPage.status, 302);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/ai-records.html`, { headers: { cookie: freshAdmin.cookie } })).status, 200);
     assert.equal((await call('/api/downloads', 'POST', {fileId:file.id,title:'member publish',platform:'android'}, logged.cookie)).status, 403);
     for (const route of ['/app.html','/download.html','/app.webmanifest','/app-sw.js','/assets/app/icon-192.png']) { const response=await fetch(`http://127.0.0.1:${port}${route}`);assert.equal(response.status,200,route); }
     const announcements = await call('/api/announcements');
