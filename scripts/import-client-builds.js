@@ -14,7 +14,7 @@ for(const source of files(root)){
  const platform=/\.apk$/.test(name)?'android':/-mac-/.test(name)?'mac':/-win-/.test(name)?'windows':/-linux-/.test(name)?'linux':null;if(!platform)continue;
  const sha256=crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex');if(state.resourceDownloads?.some(item=>item.sha256===sha256))continue;
  const id=crypto.randomUUID();fs.copyFileSync(source,path.join(dir,id));fs.chmodSync(path.join(dir,id),0o600);const size=fs.statSync(source).size;
- const version=name.match(/^Polynomial-(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)-(?:android|mac|win|linux)-/)?.[1] || process.env.CLIENT_VERSION || '0.3.1';
+ const version=name.match(/^Polynomial-(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)-(?:android|mac|win|linux)(?:-|\.)/)?.[1] || process.env.CLIENT_VERSION || '0.3.1';
  const displayName=name;
  state.driveFiles.push({id,storedName:id,originalName:displayName,mimeType:'application/octet-stream',size,ownerId:admin.id,scope:'public',createdAt:new Date().toISOString()});
  const arch=name.includes('arm64')?'ARM64':/x64|x86_64|amd64/.test(name)?'x64':'';
