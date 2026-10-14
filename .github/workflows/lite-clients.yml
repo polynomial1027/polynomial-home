@@ -1,0 +1,55 @@
+name: Build lightweight clients
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ai-framework]
+    paths: ['apps/lite/**', '.github/workflows/lite-clients.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm}
+      - run: npm ci && npm run check && npm test
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo generate-lockfile --manifest-path apps/lite/src-tauri/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with: {name: lite-cargo-lock, path: apps/lite/src-tauri/Cargo.lock}
+  desktop:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-latest, target: aarch64-apple-darwin, platform: mac, arch: arm64, bundle: dmg}
+          - {os: macos-latest, target: x86_64-apple-darwin, platform: mac, arch: x64, bundle: dmg}
+          - {os: windows-latest, target: x86_64-pc-windows-msvc, platform: win, arch: x64, bundle: nsis}
+          - {os: windows-latest, target: aarch64-pc-windows-msvc, platform: win, arch: arm64, bundle: nsis}
+          - {os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, platform: linux, arch: x64, bundle: deb}
+          - {os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, platform: linux, arch: arm64, bundle: deb}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: apps/lite/package-lock.json}
+      - uses: dtolnay/rust-toolchain@stable
+        with: {targets: '${{ matrix.target }}'}
+      - uses: actions/download-artifact@v4
+        with: {name: lite-cargo-lock, path: apps/lite/src-tauri}
+      - uses: Swatinem/rust-cache@v2
+        with: {workspaces: 'apps/lite/src-tauri -> target', key: '${{ matrix.target }}'}
+      - if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci --prefix apps/lite
+      - run: npm run build --prefix apps/lite -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+        env: {CSC_IDENTITY_AUTO_DISCOVERY: 'false'}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lite-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            apps/lite/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            apps/lite/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            apps/lite/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+          if-no-files-found: error
