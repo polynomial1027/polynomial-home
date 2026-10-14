@@ -2,7 +2,7 @@
  const $=id=>document.querySelector(id),esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const labels={planned:'计划中',building:'构建中',testing:'已发布 · 试用版',stable:'已发布 · 稳定版',withdrawn:'停止分发'};
  const platforms={android:'Android',ios:'iOS',mac:'macOS',windows:'Windows',linux:'Linux',other:'其他'};
- let resources=[],releases={releases:[]},admin=false,category='client',installPrompt;
+ let resources=[],releases={releases:[]},admin=false,category='client';
  const query=new URLSearchParams(location.search),reported=navigator.userAgent.match(/PolynomialClient\/([\w.-]+) \((\w+); ([\w-]+)\)/);
  const installed=reported?.[1]||query.get('installed'),installedPlatform=reported?.[2]||query.get('platform'),installedArch=reported?.[3]||query.get('arch');
  const devicePlatform=/Android/i.test(navigator.userAgent)?'android':/iPhone|iPad|iPod/i.test(navigator.userAgent)?'ios':/Windows/i.test(navigator.userAgent)?'windows':/Macintosh|Mac OS X/i.test(navigator.userAgent)?'mac':/Linux/i.test(navigator.userAgent)?'linux':null;
@@ -33,6 +33,6 @@
  $('#releaseForm').onsubmit=async event=>{event.preventDefault();try{await request(`/api/client/releases/${encodeURIComponent($('#releaseVersion').value.trim())}`,{method:'PATCH',body:JSON.stringify({status:$('#releaseStatus').value,notes:$('#releaseChangeNotes').value,recommended:$('#releaseRecommended').checked})});$('#downloadNotice').textContent='版本状态与更新说明已保存。';await refresh();}catch(error){$('#downloadNotice').textContent=error.message;}};
  $('#releaseVersion').onchange=()=>{const release=releases.releases.find(item=>item.version===$('#releaseVersion').value.trim());if(release){$('#releaseStatus').value=release.status;$('#releaseChangeNotes').value=release.notes;$('#releaseRecommended').checked=release.version===releases.recommendedVersion;}};
  Promise.all([refresh(),request('/api/me')]).then(async([,account])=>{admin=account.user?.role==='admin';$('#resourceAdmin').hidden=!admin;if(admin){const drive=await request('/api/admin/drive');$('#resourceFile').innerHTML=drive.files.filter(file=>file.scope==='public').map(file=>`<option value="${file.id}">${esc(file.originalName)}</option>`).join('');render();}}).catch(error=>$('#downloadNotice').textContent=error.message);
- window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installApp').hidden=false;});$('#installApp').onclick=async()=>{if(installPrompt){await installPrompt.prompt();installPrompt=null;$('#installApp').hidden=true;}};
+ 
  if('serviceWorker'in navigator)navigator.serviceWorker.register('/app-sw.js').catch(()=>{});setInterval(()=>{if(!document.hidden)refresh().catch(()=>{});},60000);
 })();
