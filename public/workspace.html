@@ -17,8 +17,8 @@
       <section class="workspace-card assistant-card" id="assistantCard">
         <div class="card-heading"><div><span class="workspace-icon">✦</span><div><small>AI ASSISTANT</small><h2>智能助手</h2></div></div><span class="status-pill" id="assistantStatus">读取中</span></div>
         <p class="card-intro" id="assistantDescription">正在读取服务状态…</p>
-        <div class="pricing-window" id="pricingWindow" role="status"><strong>正在读取 DeepSeek 时段…</strong><span id="pricingDetails"></span></div>
-        <div class="assistant-usage" id="assistantUsage"></div>
+        <div class="pricing-window" id="pricingWindow" hidden role="status"><strong>正在读取 DeepSeek 时段…</strong><span id="pricingDetails"></span></div>
+        <div class="assistant-usage" id="assistantUsage" hidden></div>
         <div class="assistant-thread" id="assistantThread" aria-live="polite"></div>
         <div id="assistantQueue" class="assistant-queue"></div>
         <form id="assistantForm" class="assistant-form"><textarea id="assistantMessage" rows="2" maxlength="2000" placeholder="提出一个问题，或请我帮你整理计划…"></textarea><button type="submit">发送 ↗</button></form>

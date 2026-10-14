@@ -482,7 +482,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
-    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: priceWindow(new Date(), assistantModel), limits: assistant.limits(state, user), usage: assistant.usage(state, user.id), queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
   }
   if (url.pathname === '/api/workspace/brief/seen' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
@@ -517,9 +517,9 @@ async function api(req, res, url) {
     const window = priceWindow(new Date(), assistantModel);
     if (window.peak && data.sendMode !== 'now') {
       const queued = chatService.queueChat(state, save, user, message);
-      return json(res, 202, { queued, pricing: window });
+      return json(res, 202, { queued, pricing: user.role === 'admin' ? window : { peak: window.peak } });
     }
-    try { const reply = await chatService.sendChat({ state, save, user, value: message, key: assistantKey, model: assistantModel }); return json(res, 200, { reply, usage: assistant.usage(state, user.id), pricing: window }); }
+    try { const reply = await chatService.sendChat({ state, save, user, value: message, key: assistantKey, model: assistantModel }); return json(res, 200, { reply, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, pricing: user.role === 'admin' ? window : { peak: window.peak } }); }
     catch (error) { return json(res, error.code === 'AI_LIMIT' ? 429 : 502, { error: error.message }); }
   }
   const queuedChatMatch = url.pathname.match(/^\/api\/workspace\/assistant\/queue\/([a-f0-9-]+)$/);
@@ -559,11 +559,11 @@ async function api(req, res, url) {
     if (!result) {
       if (!assistantKey || !state.settings.assistantEnabled) return json(res, 503, { error: 'AI 管家需要先开启 DeepSeek；在线人数和登录记录查询仍可用' });
       const report = generateReport(state, save, new Date(), true), review = state.assistantReviews.find(item => item.status === 'completed');
-      const context = { at: new Date().toISOString(), activeAccounts: state.users.filter(user => user.active).length, recentlyActiveAccounts: onlineCount, report: report ? { day: report.day, severity: report.severity, notes: report.notes, loginSuccess: report.loginSuccess, loginFailed: report.loginFailed, memory: report.memory, disk: report.disk, loadAverage: report.loadAverage, systemLogin: report.systemLogin } : null, aiReview: review ? { day: review.day, summary: review.summary, risk: review.risk } : null };
+      const context = { at: new Date().toISOString(), activeAccounts: state.users.filter(user => user.active).length, recentlyActiveAccounts: onlineCount, report: report ? { day: report.day, windowStart: report.windowStart, windowEnd: report.windowEnd, severity: report.severity, notes: report.notes, loginSuccess: report.loginSuccess, loginFailed: report.loginFailed, memory: report.memory, disk: report.disk, loadAverage: report.loadAverage, systemLogin: report.systemLogin } : null, aiReview: review ? { day: review.day, summary: review.summary, risk: review.risk } : null };
       try { result = await adminButler.answerWithAi({ state, save, admin, message, context, key: assistantKey, model: assistantModel }); }
       catch (error) { return json(res, error.code === 'AI_LIMIT' ? 429 : 502, { error: error.message }); }
     }
-    const entry = { id: crypto.randomUUID(), adminId: admin.id, message, reply: result.reply, link: result.link || null, actionId: result.action?.id || null, at: new Date().toISOString() };
+    const entry = { id: crypto.randomUUID(), adminId: admin.id, message: /密码/.test(message) ? '请求修改账号密码（内容不保留）' : message, reply: result.reply, link: result.link || null, actionId: result.action?.id || null, at: new Date().toISOString() };
     state.adminButlerChats.push(entry); state.adminButlerChats = state.adminButlerChats.slice(-300); save(state);
     return json(res, 200, { entry, action: result.action ? { id: result.action.id, targetId: result.action.targetId, targetName: state.users.find(user => user.id === result.action.targetId)?.displayName, permission: result.action.permission, value: result.action.value } : null });
   }
@@ -1059,6 +1059,8 @@ async function api(req, res, url) {
     const removingAdmin = target.role === 'admin' && (data.role === 'member' || data.active === false); const activeAdmins = state.users.filter(user => user.role === 'admin' && user.active);
     if (target.id === admin.id && (data.active === false || data.role === 'member')) return json(res, 400, { error: '不能停用或降级当前管理员账号' });
     if (removingAdmin && activeAdmins.length <= 1) return json(res, 400, { error: '必须保留至少一个启用的管理员' });
+    if (data.password && String(data.password).length < 4) return json(res, 400, { error: '密码至少 4 位' });
+    if (data.driveQuotaMB !== undefined && (!Number.isSafeInteger(Number(data.driveQuotaMB)) || Number(data.driveQuotaMB) < 0)) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' });
     target.username = username; target.displayName = displayName;
     if (typeof data.active === 'boolean') target.active = data.active;
     if (data.role === 'admin' || data.role === 'member') target.role = data.role;
@@ -1068,7 +1070,7 @@ async function api(req, res, url) {
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
     if (!target.active || !allowed(target, 'accessNotebook')) { closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); }
     if (previouslyHadGo && (!target.active || !allowed(target, 'accessGames') || !allowed(target, 'accessGo'))) { goService.markPresence(target.id, false); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'go access disabled'); }); }
-    save(state); return json(res, 200, { user: publicUser(target) });
+    save(state); return json(res, 200, { user: publicUser(target), passwordChanged: Boolean(data.password) });
   }
   if (match && req.method === 'DELETE') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return; const index = state.users.findIndex(user => user.id === match[1]); if (index < 0) return json(res, 404, { error: '用户不存在' }); const target = state.users[index];

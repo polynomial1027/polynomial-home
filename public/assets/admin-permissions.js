@@ -39,7 +39,9 @@ async function initPermissionAdmin() {
       else if (user) input.checked = user.permissions?.[input.dataset.permission] === true;
     });
   });
-  await Promise.all([reloadPermissionUsers(), loadAdminDrive()]);
+  document.querySelector('#editUserForm').addEventListener('submit', savePermissions, true);
+  await reloadPermissionUsers();
+  loadAdminDrive().catch(console.error);
   const requestedUser = new URLSearchParams(location.search).get('editUser');
   if (requestedUser && permissionUsers.some(user => user.id === requestedUser)) {
     const list = document.querySelector('#userList');
@@ -47,6 +49,7 @@ async function initPermissionAdmin() {
       const button = [...list.querySelectorAll('[data-edit-user]')].find(item => item.dataset.editUser === requestedUser);
       if (!button) return false;
       button.click();
+      if (new URLSearchParams(location.search).get('focus') === 'password') document.querySelector('#editPassword').focus();
       return true;
     };
     if (!openRequested()) {
@@ -55,7 +58,6 @@ async function initPermissionAdmin() {
     }
   }
   document.querySelector('#refreshAdminDrive').onclick = loadAdminDrive;
-  document.querySelector('#editUserForm').addEventListener('submit', savePermissions, true);
 }
 
 async function reloadPermissionUsers() {
@@ -84,12 +86,14 @@ async function savePermissions(event) {
   };
   if (document.querySelector('#editPassword').value) payload.password = document.querySelector('#editPassword').value;
   try {
-    const { user } = await request(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+    const { user, passwordChanged } = await request(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
     const saved = (await request('/api/users')).users.find(item => item.id === id);
     if (!saved || saved.driveQuotaMB !== quota || Object.entries(permissions).some(([key, value]) => saved.role !== 'admin' && saved.permissions?.[key] !== value)) {
       throw new Error('服务器返回的权限状态与保存内容不一致，请重试');
     }
+    if (payload.password && !passwordChanged) throw new Error('密码未确认保存，请重试');
     Object.assign(user, saved);
+    alert(passwordChanged ? '新密码已保存。该用户旧会话已退出，请使用登录账号和新密码重新登录。' : '账号设置已保存');
     document.querySelector('#editUserDialog').close();
     location.reload();
   } catch (error) {
