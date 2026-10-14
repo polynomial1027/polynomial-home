@@ -4,6 +4,7 @@ portalStyle.href = '/assets/portal.css';
 document.head.append(portalStyle);
 
 let permissionUsers = [];
+let permissionAdminId;
 const ae = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 
 function fillUserAccessFields(user) {
@@ -22,7 +23,7 @@ async function refreshAndFillUser(userId) {
 }
 
 async function initPermissionAdmin() {
-  await loadAccount();
+  permissionAdminId = (await loadAccount()).id;
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-edit-user]');
     if (!button) return;
@@ -87,6 +88,12 @@ async function savePermissions(event) {
   if (document.querySelector('#editPassword').value) payload.password = document.querySelector('#editPassword').value;
   try {
     const { user, passwordChanged } = await request(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+    if (payload.password && !passwordChanged) throw new Error('密码未确认保存，请重试');
+    if (passwordChanged && id === permissionAdminId) {
+      alert('你的新密码已保存，请重新登录。');
+      location.href = '/login.html';
+      return;
+    }
     const saved = (await request('/api/users')).users.find(item => item.id === id);
     if (!saved || saved.driveQuotaMB !== quota || Object.entries(permissions).some(([key, value]) => saved.role !== 'admin' && saved.permissions?.[key] !== value)) {
       throw new Error('服务器返回的权限状态与保存内容不一致，请重试');
