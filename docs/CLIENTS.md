@@ -1,6 +1,6 @@
 # Polynomial 客户端 0.3.0
 
-默认服务器：`https://polynomial-server.tail722ac8.ts.net`。设备须能通过 Tailscale 访问服务器。客户端不提供 VPN，不会绕过服务器账号权限。
+默认服务器：`https://polynomial-server.tail722ac8.ts.net`。目前该 HTTPS 地址已通过现有 Funnel 公开访问，正常访问不要求设备安装 Tailscale；若将来关闭 Funnel，可通过 Tailscale 私网连接。客户端不提供 VPN，不会绕过服务器账号权限。
 
 ## 入口与功能
 
@@ -28,7 +28,7 @@
 - `apps/desktop`：Electron，远端内容关闭 Node 集成、启用沙箱与上下文隔离。只有本地连接设置页面暴露两项有限 IPC，远端页面无原生桥。
 - `apps/android`：原生 Android WebView、返回/刷新/设置、文件选择与下载。只接受 HTTPS，同源站点导航，外部网页由浏览器打开，不忽略证书错误。
 - `apps/ios/Polynomial.xcodeproj`：UIKit / WKWebView，原生导航、服务器连接设置、会话持久化，iPhone / iPad 自适应。原生 iOS 文件下载导出与系统通知将在 TestFlight 阶段补齐；当前 iOS 使用主屏幕版本。
-- `.github/workflows/clients.yml`：验证网站后，分别构建桌面各平台、Android APK，并验证 iOS 模拟器编译；产物保存在 GitHub Actions artifacts，尚未自动发布到公众 Releases。
+- `.github/workflows/clients.yml`：验证网站后，分别构建桌面各平台、Android APK，并验证 iOS 模拟器编译；产物保存在 GitHub Actions artifacts，试用安装包由独立分发工作流发布到 GitHub 试用版 Releases，再导入公共网盘。
 
 ```sh
 cd apps/desktop
@@ -64,7 +64,7 @@ POLYNOMIAL_DATA_DIR=/var/lib/polynomial-server POLYNOMIAL_OFFLINE_IMPORT=1 \
 2. 配置签名的 Archive / Export，并上传 App Store Connect；先通过 TestFlight 测试真机、登录、文件导入导出、屏幕旋转和权限隔离。
 3. 补齐原生应用图标、启动体验、辅助功能、文件导出和需要的系统提醒；当前连接式 WebView 原型不等于已经具备 App Store 审核条件。Apple 的 4.2 要求足够的应用功能，简单网站包装可能被拒。
 4. 准备隐私政策与支持网址、准确的数据收集声明（包括账号信息、服务器日志及发送给 DeepSeek 的内容）、应用介绍、年龄分级与真实设备截图。
-5. 给审核人员提供可访问的测试服务器和测试账号。目前的 Tailscale 私人站点通常不便审核，应准备合适的审核访问方式，并保持管理员数据隔离。
+5. 给审核人员提供可访问的测试服务器和测试账号。若审核时服务器仅限 Tailscale 私网，应准备合适的审核访问方式；当前 HTTPS 公网入口仍应提供独立测试账号，并保持管理员数据隔离。
 6. 根据正式功能核查账号删除流程、内容管理、权限用途声明及付费功能政策；申请不代表审核一定通过。
 
 官方依据：[App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)、[TestFlight](https://developer.apple.com/testflight/)、[App privacy](https://developer.apple.com/help/app-store-connect/reference/app-privacy/)、[Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications)。
