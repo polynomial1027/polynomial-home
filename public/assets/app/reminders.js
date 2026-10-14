@@ -29,7 +29,8 @@
   window.addEventListener('focus', desktopSchedule);
   async function webRegistration() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) throw new Error('此浏览器暂不支持后台提醒。iPhone 请先通过 Safari 添加到主屏幕。');
-    return navigator.serviceWorker.register('/app-sw.js');
+    await navigator.serviceWorker.register('/app-sw.js');
+    return navigator.serviceWorker.ready;
   }
   async function sync(data) {
     userId = data.user.id; items = data.planner;
