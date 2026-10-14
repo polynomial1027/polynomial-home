@@ -1,3 +1,4 @@
+const deliverClient = require('./lib/client-delivery').createDelivery(require('./lib/store').dataDir);
 const clientReleases = require('./lib/client-releases');
 const resources = require('./lib/resources');
 const http = require('node:http');
@@ -412,6 +413,8 @@ async function api(req, res, url) {
       if (!sameOrigin) return json(res, 403, { error: '请求来源不匹配' });
     }
   }
+  const clientDeliveryMatch = url.pathname.match(/^\/api\/client\/delivery\/(Polynomial-[A-Za-z0-9_.-]+)$/);
+  if (clientDeliveryMatch && req.method === 'PUT') { const result = await deliverClient(req, clientDeliveryMatch[1]); return json(res, result.status, result); }
   if (url.pathname === '/api/client/releases' && req.method === 'GET') return json(res, 200, { uiVersion: require('./package.json').version, ...clientReleases.manifest(state) });
   const clientReleaseMatch = url.pathname.match(/^\/api\/client\/releases\/([^/]+)$/);
   if (clientReleaseMatch && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; try { const release = clientReleases.update(state, clientReleaseMatch[1], await body(req)); save(state); return json(res, 200, { release }); } catch (error) { return json(res, 400, { error: error.message }); } }
