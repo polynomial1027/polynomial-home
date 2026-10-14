@@ -18,3 +18,14 @@ logs/
 *.bak
 *~
 node_modules/
+
+# Client build outputs and signing material
+apps/**/dist/
+apps/**/build/
+apps/**/.gradle/
+apps/**/DerivedData/
+apps/android/local.properties
+*.keystore
+*.jks
+*.p12
+*.mobileprovision

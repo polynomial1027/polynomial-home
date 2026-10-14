@@ -1,0 +1,57 @@
+{
+  "name": "polynomial-client",
+  "version": "0.3.0",
+  "description": "Polynomial Server client",
+  "author": "Polynomial",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.polynomial.server",
+    "productName": "Polynomial",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "*.cjs",
+      "*.html",
+      "icon.png"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "icon": "icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "icon": "icon.png"
+    },
+    "artifactName": "Polynomial-${version}-${os}-${arch}.${ext}"
+  }
+}

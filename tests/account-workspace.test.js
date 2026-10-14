@@ -45,6 +45,16 @@ test('password edit invalidates old login, persists across restart, and member A
     assert.equal(changed.body.user.displayName, 'Member');
     assert.equal((await call('/api/me', 'GET', undefined, oldSession.cookie)).body.user, null);
     assert.equal((await call('/api/login', 'POST', { username: 'test-member', password: 'old-password' })).status, 401);
+    const uploadData = new FormData(); uploadData.append('file', new Blob(['test-client-bytes']), 'client-test.apk');
+    const uploaded = await fetch(`http://127.0.0.1:${port}/api/drive/upload?scope=public`, { method: 'POST', headers: { cookie: admin.cookie }, body: uploadData });
+    assert.equal(uploaded.status, 201);
+    const file = (await uploaded.json()).file;
+    const published = await call('/api/downloads', 'POST', { fileId: file.id, title: 'Test client', platform: 'android', category: 'client' }, admin.cookie);
+    assert.equal(published.status, 201);
+    const content = await fetch(`http://127.0.0.1:${port}${published.body.resource.downloadUrl}`);
+    assert.equal(await content.text(), 'test-client-bytes');
+    assert.equal((await call('/api/downloads', 'POST', {fileId:file.id,title:'unauthorized',platform:'android'})).status, 401);
+    assert.equal((await call('/api/downloads')).body.resources.length, 1);
     await stop(); await start();
     const logged = await call('/api/login', 'POST', { username: 'test-member', password: 'new-password' });
     assert.equal(logged.status, 200);
@@ -54,6 +64,8 @@ test('password edit invalidates old login, persists across restart, and member A
     assert.equal(workspace.body.assistant.limits, undefined);
     assert.equal((await call('/api/admin/butler', 'GET', undefined, logged.cookie)).status, 403);
     assert.equal((await call('/api/admin/assistant', 'GET', undefined, logged.cookie)).status, 403);
+    assert.equal((await call('/api/downloads', 'POST', {fileId:file.id,title:'member publish',platform:'android'}, logged.cookie)).status, 403);
+    for (const route of ['/app.html','/download.html','/app.webmanifest','/app-sw.js','/assets/app/icon-192.png']) { const response=await fetch(`http://127.0.0.1:${port}${route}`);assert.equal(response.status,200,route); }
     const announcements = await call('/api/announcements');
     assert.ok(announcements.body.announcements.some(item => item.id === 'ai-workspace-v027'));
   } finally { await stop(); fs.rmSync(directory, { recursive: true, force: true }); }

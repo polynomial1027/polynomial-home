@@ -1,3 +1,4 @@
+const resources = require('./lib/resources');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -113,7 +114,7 @@ function loadDefaultLexicon() {
 }
 const defaultLexicon = loadDefaultLexicon();
 
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.webmanifest': 'application/manifest+json', '.ttf': 'font/ttf' };
 const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(v => v.trim().split('=').map(decodeURIComponent)));
 const currentUser = req => {
@@ -402,7 +403,7 @@ function pruneFeedback() {
 }
 
 async function api(req, res, url) {
-  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname.startsWith('/api/admin/butler') || url.pathname === '/api/admin/health/run')) {
+  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname.startsWith('/api/admin/butler') || url.pathname === '/api/admin/health/run' || url.pathname.startsWith('/api/downloads'))) {
     const origin = req.headers.origin;
     if (origin) {
       let sameOrigin = false;
@@ -410,6 +411,21 @@ async function api(req, res, url) {
       if (!sameOrigin) return json(res, 403, { error: '请求来源不匹配' });
     }
   }
+  if (url.pathname === '/api/downloads' && req.method === 'GET') return json(res, 200, { resources: (state.resourceDownloads || []).map(item => resources.view(state, item)).filter(Boolean) });
+  if (url.pathname === '/api/downloads' && req.method === 'POST') {
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    try { const item = resources.publish(state, await body(req), admin.id); save(state); return json(res, 201, { resource: item }); } catch (error) { return json(res, 400, { error: error.message }); }
+  }
+  const resourceContent = url.pathname.match(/^\/api\/downloads\/([a-f0-9-]+)\/content$/);
+  if (resourceContent && req.method === 'GET') {
+    const item = (state.resourceDownloads || []).find(entry => entry.id === resourceContent[1]);
+    const file = item && state.driveFiles.find(entry => entry.id === item.fileId && entry.scope === 'public');
+    if (!file || !/^[a-f0-9-]+$/.test(file.storedName)) return json(res, 404, { error: '资源不存在或已下架' });
+    const target = path.join(driveDir, file.storedName); if (!fs.existsSync(target)) return json(res, 404, { error: '资源文件不存在' });
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': fs.statSync(target).size, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); return fs.createReadStream(target).pipe(res);
+  }
+  const resourceMatch = url.pathname.match(/^\/api\/downloads\/([a-f0-9-]+)$/);
+  if (resourceMatch && req.method === 'DELETE') { if (!requireUser(req, res, 'admin')) return; state.resourceDownloads = (state.resourceDownloads || []).filter(item => item.id !== resourceMatch[1]); save(state); return json(res, 200, { ok: true }); }
   if (url.pathname === '/api/login' && req.method === 'POST') {
     const ip = clientAddress(req);
     const recent = (loginAttempts.get(ip) || []).filter(t => Date.now() - t < 10 * 60_000);
@@ -1111,7 +1127,7 @@ function staticFile(req, res, url) {
     res.writeHead(308, { Location: `${calculatorRoot}/`, 'Cache-Control': 'no-store' });
     return res.end();
   }
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python|workspace)\.html$/.test(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|drive|learning|python|workspace|app|download|offline)\.html$/.test(clean) || ['/app.webmanifest', '/app-sw.js'].includes(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }
