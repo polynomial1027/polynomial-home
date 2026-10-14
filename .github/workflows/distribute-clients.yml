@@ -1,0 +1,33 @@
+name: Publish client trial
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ai-framework]
+    paths: ['.github/workflows/distribute-clients.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify successful source build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh run view 38507678852 --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 38507678852 --json headSha --jq .headSha)" = df54919c7cca606e4cde22d5ea6857893934ce24
+      - name: Download verified build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 38507678852 --dir client-artifacts
+      - name: Publish trial installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp client-artifacts/client-android-test/app-debug.apk client-artifacts/Polynomial-0.3.0-android-test.apk
+          find client-artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -print > /tmp/client-assets.txt
+          echo client-artifacts/Polynomial-0.3.0-android-test.apk >> /tmp/client-assets.txt
+          gh release view client-v0.3.0 >/dev/null 2>&1 || gh release create client-v0.3.0 --target df54919 --prerelease --title 'Polynomial 客户端 0.3.0 · 试用版' --notes-file CHANGELOG-0.3.0.md
+          while IFS= read -r asset; do gh release upload client-v0.3.0 "$asset" --clobber; done < /tmp/client-assets.txt
