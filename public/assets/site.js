@@ -94,3 +94,4 @@ function renderGlobalFeedback(){
   window.I18N?.translateElement(section);
 }
 renderGlobalFeedback();
+if (/PolynomialClient\/[\w.-]+ \((mac|windows|linux);/.test(navigator.userAgent)) { const reminderScript = document.createElement('script'); reminderScript.src = '/assets/app/desktop-reminder-background.js'; document.head.appendChild(reminderScript); }
