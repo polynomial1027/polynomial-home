@@ -4,6 +4,15 @@ android {
     compileSdk 35
     buildFeatures { buildConfig true }
     defaultConfig { applicationId 'com.polynomial.server'; minSdk 29; targetSdk 35; versionCode 36; versionName '0.3.6' }
-    buildTypes { release { minifyEnabled false } }
+    signingConfigs {
+        upload {
+            storeType 'PKCS12'
+            storeFile file(System.getenv('POLYNOMIAL_ANDROID_KEYSTORE') ?: 'missing-release-key.p12')
+            storePassword System.getenv('POLYNOMIAL_ANDROID_KEYSTORE_PASSWORD') ?: ''
+            keyAlias System.getenv('POLYNOMIAL_ANDROID_KEY_ALIAS') ?: 'polynomial-upload'
+            keyPassword System.getenv('POLYNOMIAL_ANDROID_KEY_PASSWORD') ?: ''
+        }
+    }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.upload } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
