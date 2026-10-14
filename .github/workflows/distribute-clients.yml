@@ -16,18 +16,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          test "$(gh run view 38507678852 --json conclusion --jq .conclusion)" = success
-          test "$(gh run view 38507678852 --json headSha --jq .headSha)" = df54919c7cca606e4cde22d5ea6857893934ce24
+          gh run watch 38509323570 --exit-status --interval 15
+          test "$(gh run view 38509323570 --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 38509323570 --json headSha --jq .headSha)" = 6bb3546d1ffc01dfd594e611a93d91021832571a
       - name: Download verified build artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download 38507678852 --dir client-artifacts
+        run: gh run download 38509323570 --dir client-artifacts
       - name: Publish trial installers
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp client-artifacts/client-android-test/app-debug.apk client-artifacts/Polynomial-0.3.0-android-test.apk
+          cp client-artifacts/client-android-test/app-debug.apk client-artifacts/Polynomial-0.3.1-android-test.apk
           find client-artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -print > /tmp/client-assets.txt
-          echo client-artifacts/Polynomial-0.3.0-android-test.apk >> /tmp/client-assets.txt
-          gh release view client-v0.3.0 >/dev/null 2>&1 || gh release create client-v0.3.0 --target df54919c7cca606e4cde22d5ea6857893934ce24 --prerelease --title 'Polynomial 客户端 0.3.0 · 试用版' --notes-file CHANGELOG-0.3.0.md
-          while IFS= read -r asset; do gh release upload client-v0.3.0 "$asset" --clobber; done < /tmp/client-assets.txt
+          echo client-artifacts/Polynomial-0.3.1-android-test.apk >> /tmp/client-assets.txt
+          cat CHANGELOG-0.3.0.md CHANGELOG-0.3.1.md > /tmp/client-release.md
+          gh release view client-v0.3.1 >/dev/null 2>&1 || gh release create client-v0.3.1 --target 6bb3546d1ffc01dfd594e611a93d91021832571a --prerelease --title 'Polynomial 客户端 0.3.1 · 试用版' --notes-file /tmp/client-release.md
+          while IFS= read -r asset; do gh release upload client-v0.3.1 "$asset" --clobber; done < /tmp/client-assets.txt
