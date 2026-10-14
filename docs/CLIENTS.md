@@ -1,4 +1,4 @@
-# Polynomial 客户端 0.3.0
+# Polynomial 客户端 0.3.2
 
 默认服务器：`https://polynomial-server.tail722ac8.ts.net`。目前该 HTTPS 地址已通过现有 Funnel 公开访问，正常访问不要求设备安装 Tailscale；若将来关闭 Funnel，可通过 Tailscale 私网连接。客户端不提供 VPN，不会绕过服务器账号权限。
 
@@ -70,3 +70,9 @@ POLYNOMIAL_DATA_DIR=/var/lib/polynomial-server POLYNOMIAL_OFFLINE_IMPORT=1 \
 官方依据：[App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)、[TestFlight](https://developer.apple.com/testflight/)、[App privacy](https://developer.apple.com/help/app-store-connect/reference/app-privacy/)、[Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications)。
 
 安全实现参考：[Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security)、[Android WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview)、[Apple WKWebView](https://developer.apple.com/documentation/webkit/wkwebview)。
+
+## 软件版本与更新
+
+下载中心区分计划中、构建中、试用版、稳定版和停止分发；保留历史版本的记录与已发布文件。默认推荐可下载的稳定版，其次推荐最新试用版；管理员可固定一个已发布且有文件的版本。停止分发不删除网盘文件，但下载中心不再提供此版本下载。
+
+用户可以同时选择版本、平台和芯片。每个版本有独立更新说明、发布时间、安装包和 SHA-256 校验。客户端通过只用于显示的 User-Agent 标记报告版本及平台；此标记不用于身份验证或授权。桌面“关于”和“检查软件更新”，以及应用账号页，展示安装版本和下载入口。当前采用手动下载安装更新，尚未启用后台自动替换程序。网页/主屏幕界面联网获得最新界面版本，这与原生安装包版本分别标注；早期客户端未报告版本时，明确显示无法识别，不会冒称已安装最新版本。
