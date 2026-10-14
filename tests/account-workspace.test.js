@@ -79,6 +79,17 @@ test('password edit invalidates old login, persists across restart, and member A
       assert.equal((await call(route)).status, 401);
       assert.equal((await call(route, 'GET', undefined, logged.cookie)).status, 403);
     }
+    const plan = await call('/api/workspace/planner', 'POST', { title: 'Member reminder', dueAt: '2026-10-17T09:00:00+08:00' }, logged.cookie);
+    assert.equal(plan.status, 201);
+    const planId = plan.body.item.id;
+    assert.equal((await call(`/api/workspace/planner/${planId}`, 'PATCH', { title: 'Should not save', dueAt: 'bad' }, logged.cookie)).status, 400);
+    assert.equal((await call('/api/workspace', 'GET', undefined, logged.cookie)).body.planner.find(item => item.id === planId).title, 'Member reminder');
+    assert.equal((await call(`/api/workspace/planner/${planId}`, 'PATCH', { title: 'Moved reminder', dueAt: '2026-10-18T10:00:00+08:00' }, logged.cookie)).status, 200);
+    const updatedPlan = (await call('/api/workspace', 'GET', undefined, logged.cookie)).body.planner.find(item => item.id === planId);
+    assert.equal(updatedPlan.dueAt, '2026-10-18T02:00:00.000Z');
+    const otherSession = await call('/api/login', 'POST', { username: 'test-admin', password: 'test-admin-password' });
+    assert.equal((await call(`/api/workspace/planner/${planId}`, 'PATCH', { title: 'Other account change' }, otherSession.cookie)).status, 404);
+    assert.equal((await call(`/api/workspace/planner/${planId}`, 'DELETE', undefined, logged.cookie)).status, 200);
     const freshAdmin = await call('/api/login', 'POST', { username: 'test-admin', password: 'test-admin-password' });
     assert.equal((await call('/api/admin/assistant/records', 'GET', undefined, freshAdmin.cookie)).status, 200);
     const records = await call(`/api/admin/assistant/records?userId=${member.body.user.id}`, 'GET', undefined, freshAdmin.cookie);

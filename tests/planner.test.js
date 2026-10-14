@@ -39,3 +39,25 @@ test('AI planning chat creates only valid dated tasks and uses shared quota', as
   assert.equal(state.plannerItems[0].source, 'assistant');
   assert.equal(state.assistantUsage[0].tokens, 75);
 });
+
+test('editing a plan validates before saving and reschedules only the owner reminder', () => {
+  const state = { plannerItems: [], reminderDeliveries: [] }, user = { id: 'alice' };
+  const item = planner.createItem(state, () => {}, user, { title: '会议', dueAt: '2026-10-16T09:00:00+08:00' });
+  state.reminderDeliveries.push({ itemId: item.id }, { itemId: 'other-task' });
+  assert.throws(() => planner.updateItem(state, () => {}, user, item.id, { title: '不应保存', dueAt: 'bad' }));
+  assert.equal(item.title, '会议');
+  assert.equal(planner.updateItem(state, () => {}, { id: 'bob' }, item.id, { title: '不应修改' }), null);
+  planner.updateItem(state, () => {}, user, item.id, { title: '改期会议', dueAt: '2026-10-17T10:00:00+08:00', scheduled: false });
+  assert.equal(item.dueAt, '2026-10-17T02:00:00.000Z');
+  assert.equal(item.scheduled, false);
+  assert.deepEqual(state.reminderDeliveries, [{ itemId: 'other-task' }]);
+});
+
+test('old completed tasks never hide pending plans from the workspace', () => {
+  const state = { plannerItems: Array.from({ length: 110 }, (_, i) => ({ id: String(i), userId: 'alice', done: true, dueAt: '2020-01-01', completedAt: `2020-01-${String(i % 28 + 1).padStart(2, '0')}` })) };
+  state.plannerItems.push({ id: 'future', userId: 'alice', done: false, dueAt: '2026-10-17' }, { id: 'private', userId: 'bob', done: false });
+  const items = planner.listItems(state, { id: 'alice' });
+  assert.equal(items.length, 101);
+  assert.ok(items.some(item => item.id === 'future'));
+  assert.ok(!items.some(item => item.id === 'private'));
+});

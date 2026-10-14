@@ -13,7 +13,7 @@
       if (localStorage.getItem(`reminders:${user.id}`) !== 'on') return;
       const now = Date.now();
       for (const item of planner) {
-        const due = Date.parse(item.dueAt), sentKey = `reminder-sent:${user.id}:${item.id}`;
+        const due = Date.parse(item.dueAt), sentKey = `reminder-sent:${user.id}:${item.id}:${item.dueAt}`;
         if (item.done || item.scheduled === false || !Number.isFinite(due) || due > now || due < now - 5 * 60_000 || localStorage.getItem(sentKey)) continue;
         notifications.sendNotification({ title: '日程提醒', body: item.title });
         localStorage.setItem(sentKey, String(now));

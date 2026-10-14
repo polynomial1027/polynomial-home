@@ -512,7 +512,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
-    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: state.plannerItems.filter(item => item.userId === user.id).sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')).slice(0, 100), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+    return json(res, 200, { user: publicUser(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: plannerService.listItems(state, user), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
   }
   if (url.pathname === '/api/workspace/reminders' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
@@ -548,8 +548,9 @@ async function api(req, res, url) {
     if (req.method === 'DELETE') { state.plannerItems.splice(index, 1); save(state); }
     else {
       const data = await body(req);
-      if (typeof data.done !== 'boolean' && typeof data.scheduled !== 'boolean') return json(res, 400, { error: '状态格式错误' });
-      plannerService.updateItem(state, save, user, plannerMatch[1], data);
+      if (!['title', 'dueAt', 'done', 'scheduled'].some(key => Object.hasOwn(data, key))) return json(res, 400, { error: '没有可修改的事项内容' });
+      try { plannerService.updateItem(state, save, user, plannerMatch[1], data); }
+      catch (error) { return json(res, 400, { error: error.message }); }
     }
     return json(res, 200, { ok: true });
   }

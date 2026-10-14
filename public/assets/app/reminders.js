@@ -19,7 +19,7 @@
     if (localStorage.getItem(`reminders:${userId}`) !== 'on' || !tauri) return;
     const now = Date.now();
     for (const item of items) {
-      const due = Date.parse(item.dueAt), sentKey = `reminder-sent:${userId}:${item.id}`;
+      const due = Date.parse(item.dueAt), sentKey = `reminder-sent:${userId}:${item.id}:${item.dueAt}`;
       if (item.done || item.scheduled === false || !Number.isFinite(due) || due > now || due < now - 5 * 60_000 || localStorage.getItem(sentKey)) continue;
       try { tauri.sendNotification({ title: '日程提醒', body: item.title }); localStorage.setItem(sentKey, String(now)); }
       catch (error) { console.warn('Desktop reminder:', error); }
