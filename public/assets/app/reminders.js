@@ -5,7 +5,7 @@
   const native = window.PolynomialReminders;
   const desktop = /PolynomialClient\/[\w.-]+ \((mac|windows|linux);/.test(navigator.userAgent);
   const tauri = window.__TAURI__?.notification;
-  let userId = null, items = [], timers = [];
+  let userId = null, items = [];
   const api = async (method, body) => {
     const response = await fetch('/api/workspace/reminders', { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const result = await response.json();
@@ -16,16 +16,17 @@
   const currentTasks = () => items.filter(item => item.dueAt && !item.done && item.scheduled !== false && new Date(item.dueAt).getTime() > Date.now());
   function render(enabled, message) { status.textContent = message; button.hidden = enabled; disable.hidden = !enabled; }
   function desktopSchedule() {
-    timers.forEach(clearTimeout); timers = [];
     if (localStorage.getItem(`reminders:${userId}`) !== 'on' || !tauri) return;
-    for (const item of currentTasks()) {
-      const delay = new Date(item.dueAt).getTime() - Date.now();
-      if (delay > 2_147_000_000) continue;
-      timers.push(setTimeout(() => {
-        if (localStorage.getItem(`reminders:${userId}`) === 'on') Promise.resolve(tauri.sendNotification({ title: '日程提醒', body: item.title })).catch(() => {});
-      }, delay));
+    const now = Date.now();
+    for (const item of items) {
+      const due = Date.parse(item.dueAt), sentKey = `reminder-sent:${userId}:${item.id}`;
+      if (item.done || item.scheduled === false || !Number.isFinite(due) || due > now || due < now - 5 * 60_000 || localStorage.getItem(sentKey)) continue;
+      try { tauri.sendNotification({ title: '日程提醒', body: item.title }); localStorage.setItem(sentKey, String(now)); }
+      catch (error) { console.warn('Desktop reminder:', error); }
     }
   }
+  setInterval(desktopSchedule, 15_000);
+  window.addEventListener('focus', desktopSchedule);
   async function webRegistration() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) throw new Error('此浏览器暂不支持后台提醒。iPhone 请先通过 Safari 添加到主屏幕。');
     return navigator.serviceWorker.register('/app-sw.js');
