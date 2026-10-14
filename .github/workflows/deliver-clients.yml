@@ -1,0 +1,29 @@
+name: Deliver verified installers
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ai-framework]
+    paths: ['.github/workflows/deliver-clients.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified source builds
+        env: {GH_TOKEN: '${{ github.token }}', GH_REPO: polynomial1027/polynomial-home}
+        run: |
+          gh run download 38509323570 --dir builds-031
+          gh run download 38510099463 --dir builds-032
+          cp builds-031/client-android-test/app-debug.apk builds-031/Polynomial-0.3.1-android-test.apk
+          cp builds-032/client-android-test/app-debug.apk builds-032/Polynomial-0.3.2-android-test.apk
+          find builds-031 builds-032 -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name 'Polynomial-*-android-test.apk' \) -print > /tmp/client-delivery-files.txt
+      - name: Upload only the hash-approved installers
+        env: {CLIENT_DELIVERY_TOKEN: '${{ secrets.CLIENT_DELIVERY_TOKEN }}'}
+        run: |
+          test -n "$CLIENT_DELIVERY_TOKEN"
+          while IFS= read -r file; do
+            name=$(basename "$file")
+            curl -fSs --retry 2 --max-time 600 -X PUT -H "Authorization: Bearer $CLIENT_DELIVERY_TOKEN" --data-binary "@$file" "https://polynomial-server.tail722ac8.ts.net/api/client/delivery/$name"
+          done < /tmp/client-delivery-files.txt
