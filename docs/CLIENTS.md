@@ -1,4 +1,8 @@
-# Polynomial 客户端 0.3.2
+# Polynomial 客户端：桌面轻量版 0.3.3 / Android 0.3.2
+
+已发行试用版：[桌面轻量版 0.3.3](https://github.com/polynomial1027/polynomial-home/releases/tag/client-v0.3.3)、[Android 与完整桌面版 0.3.2](https://github.com/polynomial1027/polynomial-home/releases/tag/client-v0.3.2)。六种桌面轻量安装包均已构建并上传 GitHub；真实设备安装测试由用户试用反馈。网站网盘中的安装包同步尚未完成。
+
+轻量版使用系统 WebView：macOS 13+；Windows 需要 WebView2（安装器可下载运行时）；Linux 提供 DEB，需要 GTK3 / WebKitGTK 4.1，适用于满足依赖的 Debian / Ubuntu。下载时选择设备的 ARM64 或 x64 架构。桌面轻量版的工程在 `apps/lite`。安装包更新目前通过下载新版安装，网页界面与服务器功能在线更新。
 
 默认服务器：`https://polynomial-server.tail722ac8.ts.net`。目前该 HTTPS 地址已通过现有 Funnel 公开访问，正常访问不要求设备安装 Tailscale；若将来关闭 Funnel，可通过 Tailscale 私网连接。客户端不提供 VPN，不会绕过服务器账号权限。
 
