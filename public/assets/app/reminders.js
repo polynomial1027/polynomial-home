@@ -5,7 +5,7 @@
   const native = window.PolynomialReminders;
   const desktop = /PolynomialClient\/[\w.-]+ \((mac|windows|linux);/.test(navigator.userAgent);
   const tauri = window.__TAURI__?.notification;
-  let userId = null, items = [];
+  let userId = null, items = [], webReady = null, pushPublicKey = null;
   const api = async (method, body) => {
     const response = await fetch('/api/workspace/reminders', { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const result = await response.json();
@@ -46,6 +46,8 @@
     }
     try {
       const registration = await webRegistration();
+      const configuration = await api('GET');
+      webReady = registration; pushPublicKey = configuration.publicKey;
       const subscription = await registration.pushManager.getSubscription();
       if (subscription && Notification.permission === 'granted') {
         await api('POST', { subscription: subscription.toJSON() });
@@ -65,11 +67,8 @@
         localStorage.setItem(`reminders:${userId}`, 'on'); desktopSchedule();
         render(true, '桌面系统通知已开启；请保持客户端运行以接收提醒。');
       } else {
-        const registration = await webRegistration();
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') throw new Error('设备未授予通知权限，请在浏览器设置中允许。');
-        const { publicKey } = await api('GET');
-        const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64(publicKey) });
+        if (!webReady || !pushPublicKey) throw new Error('通知配置正在加载，请稍后再次点击。');
+        const subscription = await webReady.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64(pushPublicKey) });
         await api('POST', { subscription: subscription.toJSON() });
         render(true, '后台提醒已开启；关闭页面后仍可收到日程通知。');
       }
