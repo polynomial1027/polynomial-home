@@ -2,7 +2,10 @@
   "name": "polynomial-client",
   "version": "0.3.0",
   "description": "Polynomial Server client",
-  "author": "Polynomial",
+  "author": {
+    "name": "Polynomial",
+    "email": "polynomial1027@gmail.com"
+  },
   "license": "UNLICENSED",
   "private": true,
   "main": "main.cjs",
@@ -53,5 +56,6 @@
       "icon": "icon.png"
     },
     "artifactName": "Polynomial-${version}-${os}-${arch}.${ext}"
-  }
+  },
+  "homepage": "https://polynomial-server.tail722ac8.ts.net"
 }
