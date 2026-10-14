@@ -13,9 +13,10 @@ for(const source of files(root)){
  const platform=/\.apk$/.test(name)?'android':/-mac-/.test(name)?'mac':/-win-/.test(name)?'windows':/-linux-/.test(name)?'linux':null;if(!platform)continue;
  const sha256=crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex');if(state.resourceDownloads?.some(item=>item.sha256===sha256))continue;
  const id=crypto.randomUUID();fs.copyFileSync(source,path.join(dir,id));fs.chmodSync(path.join(dir,id),0o600);const size=fs.statSync(source).size;
- const displayName=platform==='android'?'Polynomial-0.3.0-android-test.apk':name;
+ const version=name.match(/Polynomial-(\d+\.\d+\.\d+)-/)?.[1] || process.env.CLIENT_VERSION || '0.3.1';
+ const displayName=platform==='android'?`Polynomial-${version}-android-test.apk`:name;
  state.driveFiles.push({id,storedName:id,originalName:displayName,mimeType:'application/octet-stream',size,ownerId:admin.id,scope:'public',createdAt:new Date().toISOString()});
- const arch=name.includes('arm64')?'ARM64':name.includes('x64')?'x64':'';
- resources.publish(state,{fileId:id,title:`Polynomial · ${platform==='mac'?'macOS':platform==='windows'?'Windows':platform==='linux'?'Linux':'Android'} ${arch}`,platform,category:'client',version:'0.3.0',sha256,description:platform==='android'?'Android 10 及以上 · 测试签名 APK，可直接安装试用。正式版升级签名将在发布前配置。':`${arch} 试用客户端 · ${name.endsWith('.zip')?'解压后打开应用':name.endsWith('.dmg')?'打开镜像并将应用拖入 Applications':name.endsWith('.AppImage')?'赋予执行权限后运行':name.endsWith('.deb')?'适用于 Debian / Ubuntu':'运行安装程序'}。桌面版本尚未配置发布者签名。`},admin.id);added++;
+ const arch=name.includes('arm64')?'ARM64':/x64|x86_64|amd64/.test(name)?'x64':'';
+ resources.publish(state,{fileId:id,title:`Polynomial · ${platform==='mac'?'macOS':platform==='windows'?'Windows':platform==='linux'?'Linux':'Android'} ${arch}`,platform,category:'client',version,sha256,description:platform==='android'?'Android 10 及以上 · 测试签名 APK，可直接安装试用。正式版升级签名将在发布前配置。':`${arch} 试用客户端 · ${name.endsWith('.zip')?'解压后打开应用':name.endsWith('.dmg')?'打开镜像并将应用拖入 Applications':name.endsWith('.AppImage')?'赋予执行权限后运行':name.endsWith('.deb')?'适用于 Debian / Ubuntu':'运行安装程序'}。桌面版本尚未配置发布者签名。`},admin.id);added++;
 }
 save(state);console.log(`已向公共网盘和下载中心发布 ${added} 个安装包（不重复占用文件空间）`);

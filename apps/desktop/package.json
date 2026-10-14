@@ -1,6 +1,6 @@
 {
   "name": "polynomial-client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Polynomial Server client",
   "author": {
     "name": "Polynomial",
@@ -26,7 +26,8 @@
     "files": [
       "*.cjs",
       "*.html",
-      "icon.png"
+      "icon.png",
+      "*.js"
     ],
     "mac": {
       "target": [
