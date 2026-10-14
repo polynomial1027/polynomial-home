@@ -5,6 +5,8 @@
  let resources=[],releases={releases:[]},admin=false,category='client',installPrompt;
  const query=new URLSearchParams(location.search),reported=navigator.userAgent.match(/PolynomialClient\/([\w.-]+) \((\w+); ([\w-]+)\)/);
  const installed=reported?.[1]||query.get('installed'),installedPlatform=reported?.[2]||query.get('platform'),installedArch=reported?.[3]||query.get('arch');
+ const devicePlatform=/Android/i.test(navigator.userAgent)?'android':/iPhone|iPad|iPod/i.test(navigator.userAgent)?'ios':/Windows/i.test(navigator.userAgent)?'windows':/Macintosh|Mac OS X/i.test(navigator.userAgent)?'mac':/Linux/i.test(navigator.userAgent)?'linux':null;
+ if(devicePlatform)$('#resourcePlatform').value=devicePlatform;
  if(platforms[installedPlatform])$('#resourcePlatform').value=installedPlatform;
  if(['arm64','x64','universal'].includes(installedArch))$('#resourceArch').value=installedArch;
  function recommended(){return $('#resourcePlatform').value==='all'?releases.recommendedVersion:releases.recommendedByPlatform?.[$('#resourcePlatform').value] || null;}
