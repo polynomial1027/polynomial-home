@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [codex/ai-framework]
-    paths: ['apps/**', '.github/workflows/clients.yml']
+    paths: ['apps/desktop/**', 'apps/android/**', 'apps/ios/**', '.github/workflows/clients.yml']
 permissions:
   contents: read
 jobs:
