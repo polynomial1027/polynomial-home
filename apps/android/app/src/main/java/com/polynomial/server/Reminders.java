@@ -70,6 +70,7 @@ public final class Reminders extends BroadcastReceiver {
             if (!userId.matches("[a-f0-9-]{36}") || tasks == null || tasks.length() > 100) return;
             if (requested && !permitted(activity)) activity.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 202);
             if (!requested && !prefs(activity).getBoolean("enabled", false)) return;
+            if (!requested && userId.equals(prefs(activity).getString("userId", "")) && tasks.toString().equals(prefs(activity).getString("items", ""))) return;
             cancel(activity, saved(activity));
             prefs(activity).edit().putString("userId", userId).putString("items", tasks.toString()).putBoolean("enabled", true).apply();
             if (permitted(activity)) schedule(activity, tasks);

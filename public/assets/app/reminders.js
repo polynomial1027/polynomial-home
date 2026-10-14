@@ -13,7 +13,7 @@
     return result;
   };
   const base64 = value => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4)), char => char.charCodeAt(0));
-  const currentTasks = () => items.filter(item => item.dueAt && !item.done && item.scheduled !== false && new Date(item.dueAt).getTime() > Date.now());
+  const currentTasks = () => items.filter(item => item.dueAt && !item.done && item.scheduled !== false);
   function render(enabled, message) { status.textContent = message; button.hidden = enabled; disable.hidden = !enabled; }
   function desktopSchedule() {
     if (localStorage.getItem(`reminders:${userId}`) !== 'on' || !tauri) return;
