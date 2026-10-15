@@ -51,7 +51,7 @@ git merge --ff-only "$target"
 mkdir -p "$HOME/.config/systemd/user"
 install -m 600 deploy/polynomial-home-user.service "$HOME/.config/systemd/user/$unit"
 systemctl --user daemon-reload
-if [ -n "$installers" ]; then POLYNOMIAL_DATA_DIR="$data" POLYNOMIAL_OFFLINE_IMPORT=1 node scripts/import-client-builds.js "$installers"; fi
+if [ -n "$installers" ]; then CLIENT_RECOMMENDED_VERSION=$(node -p "require('./package.json').version") POLYNOMIAL_DATA_DIR="$data" POLYNOMIAL_OFFLINE_IMPORT=1 node scripts/import-client-builds.js "$installers"; fi
 POLYNOMIAL_DATA_DIR="$data" node - <<'NODE'
 const { load, getDatabase, dataDir } = require('./lib/store');
 const { BackupService } = require('./lib/backups');
