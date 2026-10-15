@@ -64,6 +64,7 @@ test('password edit invalidates old login, persists across restart, and member A
     const { StateDatabase } = require('../lib/database');
     const savedDb = new StateDatabase(directory), saved = savedDb.read();
     const recordId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', day = require('../lib/assistant').dayKey();
+    saved.settings.automaticBackup = false;
     saved.assistantUsage.push({ id: recordId, userId: member.body.user.id, day, month: day.slice(0,7), at: new Date().toISOString(), tokens: 123, requests: 1, status: 'completed', detail: { source: 'chat', model: 'test-model', messages: [{role:'user',content:'private member question'}], response: 'private member answer' } });
     saved.assistantChats.push({userId:member.body.user.id,role:'user',content:'old member question',at:new Date().toISOString()});
     savedDb.write(saved); savedDb.close();

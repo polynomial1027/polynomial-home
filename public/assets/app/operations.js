@@ -21,8 +21,13 @@
     $('#backupRows').innerHTML = operations.backups.length ? operations.backups.slice(0, 7).map(row => `<div class="operation-row"><div><strong>${time(row.createdAt)}</strong><small>${(row.size / 1048576).toFixed(1)} MB · ${row.fileCount} 个文件<br>恢复验证：${time(row.verifiedAt)}</small><code class="backup-hash">SHA-256 ${esc(row.sha256)}</code></div><div class="row-actions"><a class="secondary small" href="/api/admin/operations/backups/${row.id}/content">下载备份</a><a class="text-link" href="/api/admin/operations/backups/${row.id}/metadata">校验信息</a><button class="secondary small" data-verify-backup="${row.id}">重新验证</button></div></div>`).join('') : '<p class="muted">暂无备份。可立即创建，或等待低峰自动备份。</p>';
     $('#createBackup').disabled = operations.backupBusy;
     if (!$('#retentionForm').contains(document.activeElement)) { $('#automaticBackup').checked = operations.settings.automaticBackup; for (const key of ['backupRetention', 'aiRecordRetentionDays', 'auditRetentionDays']) $(`#${key}`).value = operations.settings[key]; }
-    const failed = operations.jobs.filter(job => ['failed', 'interrupted'].includes(job.status));
-    $('#homeOperations').innerHTML = `<div><strong>${failed.length ? `${failed.length} 项任务需要处理` : '自动任务正常'}</strong><p class="muted">${failed.length ? failed.map(job => esc(job.title)).join('、') : `最近备份 ${time(operations.backups[0]?.createdAt)} · ${operations.jobs.filter(job => job.enabled && !job.paused).length} 项自动任务已启用`}</p></div><a href="#control" class="text-link">查看执行记录 ↗</a>`;
+    const enabled = operations.jobs.filter(job => job.enabled && !job.paused);
+    const failed = operations.jobs.filter(job => ['failed', 'interrupted', 'retrying'].includes(job.status));
+    const waiting = enabled.filter(job => !operations.runs.some(run => run.jobId === job.id && run.status === 'completed') && job.status !== 'completed');
+    const running = enabled.some(job => job.status === 'running');
+    const headline = failed.length ? `${failed.length} 项任务需要处理` : running ? '自动任务正在执行' : !enabled.length ? operations.jobs.some(job => job.enabled && job.paused) ? '自动任务已暂停' : '自动任务未启用' : waiting.length ? '等待首次执行' : '已启用任务最近执行成功';
+    const backupState = operations.backups.length ? `最近备份 ${time(operations.backups[0].createdAt)}` : '暂无备份，请先创建一份或启用自动备份';
+    $('#homeOperations').innerHTML = `<div><strong>${headline}</strong><p class="muted">${failed.length ? failed.map(job => esc(job.title)).join('、') : `${backupState} · ${enabled.length} 项自动任务已启用`}</p></div><a href="#control" class="text-link">查看执行记录 ↗</a>`;
     $('#pendingOperationsCount').textContent = failed.length;
   }
   async function refreshOperations(force = false) {
@@ -38,6 +43,7 @@
     $('#mfaStatus').textContent = security.mfaEnabled ? `验证器已开启 · 剩余 ${security.recoveryCodesRemaining} 个一次性恢复码` : '验证器尚未开启';
     $('#mfaSetupForm').hidden = security.mfaEnabled; $('#mfaDisableForm').hidden = !security.mfaEnabled;
     $('#sessionRows').innerHTML = devices.sessions.map(row => `<div class="operation-row"><div><strong>${row.current ? '当前设备' : '其他设备'}</strong><small>${esc(row.userAgent || '未知设备')}<br>${esc(row.address || '未知地址')} · 最近活动 ${time(row.lastSeenAt)}<br>登录 ${time(row.createdAt)} · 到期 ${time(row.expiresAt)}</small></div>${!row.current ? `<button class="secondary small" data-revoke-session="${row.id}">退出设备</button>` : ''}</div>`).join('');
+    $('#ownPasswordForm [data-mfa-factor]').hidden = !security.mfaEnabled;
     $('#ownPasswordForm input[name="newPassword"]').minLength = security.passwordMinimum;
     $('#securityPasswordHint').textContent = `新密码至少 ${security.passwordMinimum} 位。保存后退出其他设备。`;
   }

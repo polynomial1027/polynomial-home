@@ -471,6 +471,10 @@ async function api(req, res, url) {
       appendAudit({ action: 'login-failed', req, success: false, detail: String(data.username || '').trim() }); save(state);
       return json(res, 401, { error: '账号或密码错误' });
     }
+    // A correct password awaiting its second factor is a challenge, not a failed login.
+    if (user.mfa?.enabled && !String(data.code || '').trim()) {
+      return json(res, 401, { error: '请输入验证器中的六位验证码，或使用一次性恢复码', totpRequired: true });
+    }
     if (!security.verifyFactor(user, data.code)) {
       recent.push(Date.now()); loginAttempts.set(ip, recent);
       appendAudit({ action: 'login-failed', req, success: false, detail: `${user.username}; MFA required or invalid` }); save(state);

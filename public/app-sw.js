@@ -1,4 +1,4 @@
-const CACHE = 'polynomial-offline-v038';
+const CACHE = 'polynomial-offline-v039';
 // Cache only public application files. APIs, account responses and downloads
 // always use the network; calendar data requires a separate device opt-in.
 const SHELL = ['/offline.html', '/app.html', '/assets/app/app.css', '/assets/app/app.js', '/assets/app/local-cache.js', '/assets/app/operations.js', '/assets/app/reminders.js', '/assets/workspace-math.js', '/assets/vendor/katex/katex.min.js', '/assets/vendor/katex/katex.min.css', '/assets/app/icon-192.png'];

@@ -6,3 +6,5 @@
 .release-notes{background:#11283d;border-color:#355064;color:#d4e2ed}
 
 .download-progress{margin-top:14px;display:grid;gap:8px;font-size:13px;color:var(--muted)}.download-progress progress{width:100%;accent-color:#267668}.download-direct{display:inline-block;margin-top:12px;font-size:12px;color:#73827b}.download-cancel{justify-self:start;background:transparent;border:1px solid #ddd;padding:6px 10px;border-radius:6px}.download-progress span{overflow-wrap:anywhere}
+
+.download-tasks{margin:22px 0;padding:22px;border:1px solid var(--line);border-radius:18px;background:var(--panel)}.download-tasks h2{margin:0}.download-tasks>p{font-size:13px;color:var(--muted)}.download-tasks .download-progress{padding:16px 0;border-top:1px solid var(--line)}.download-tasks strong{font-size:13px;overflow-wrap:anywhere}.download-tasks .download-cancel{color:var(--text);border-color:var(--line);min-height:40px;cursor:pointer}

@@ -7,7 +7,7 @@ async function main() {
     if (!response.ok) throw new Error(`${route}: HTTP ${response.status}`); return response.json();
   }));
   if (!health.ok || health.version !== require('../package.json').version || clients.uiVersion !== health.version) throw new Error('发布版本检查失败');
-  if (!announcements.announcements.some(row => row.id === 'operations-v038')) throw new Error('缺少更新公告');
+  if (!announcements.announcements.some(row => row.id === 'interface-v039')) throw new Error('缺少更新公告');
   for (const file of downloads.resources.filter(row => row.category === 'client' && row.version === clients.recommendedVersion && row.downloadUrl)) {
     if (!file.sha256) continue;
     const response = await fetch(new URL(file.downloadUrl, base), { signal: AbortSignal.timeout(60000) });
