@@ -38,6 +38,7 @@
     $('#mfaStatus').textContent = security.mfaEnabled ? `验证器已开启 · 剩余 ${security.recoveryCodesRemaining} 个一次性恢复码` : '验证器尚未开启';
     $('#mfaSetupForm').hidden = security.mfaEnabled; $('#mfaDisableForm').hidden = !security.mfaEnabled;
     $('#sessionRows').innerHTML = devices.sessions.map(row => `<div class="operation-row"><div><strong>${row.current ? '当前设备' : '其他设备'}</strong><small>${esc(row.userAgent || '未知设备')}<br>${esc(row.address || '未知地址')} · 最近活动 ${time(row.lastSeenAt)}<br>登录 ${time(row.createdAt)} · 到期 ${time(row.expiresAt)}</small></div>${!row.current ? `<button class="secondary small" data-revoke-session="${row.id}">退出设备</button>` : ''}</div>`).join('');
+    $('#ownPasswordForm input[name="newPassword"]').minLength = security.passwordMinimum;
     $('#securityPasswordHint').textContent = `新密码至少 ${security.passwordMinimum} 位。保存后退出其他设备。`;
   }
   document.addEventListener('polynomial-snapshot', event => {

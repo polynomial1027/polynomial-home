@@ -20,7 +20,7 @@
     </nav>
 
     <div class="admin-layout">
-      <form class="panel" id="createUser"><h2>创建账号</h2><div class="field"><label>登录账号</label><input id="newUsername" minlength="3" maxlength="24" required></div><div class="field"><label>显示名称</label><input id="newDisplayName" maxlength="30" required></div><div class="field"><label>初始密码（至少 4 位）</label><input id="newPassword" type="password" minlength="4" required></div><div class="field"><label>账号角色</label><select id="newRole"><option value="member">成员</option><option value="admin">管理员</option></select></div><div class="notice" id="adminNotice"></div><button class="button admin-primary-action">创建账号</button></form>
+      <form class="panel" id="createUser"><h2>创建账号</h2><div class="field"><label>登录账号</label><input id="newUsername" minlength="3" maxlength="24" required></div><div class="field"><label>显示名称</label><input id="newDisplayName" maxlength="30" required></div><div class="field"><label>初始密码（成员至少 8 位，管理员至少 12 位）</label><input id="newPassword" type="password" minlength="8" required></div><div class="field"><label>账号角色</label><select id="newRole"><option value="member">成员</option><option value="admin">管理员</option></select></div><div class="notice" id="adminNotice"></div><button class="button admin-primary-action">创建账号</button></form>
       <section class="panel"><div class="section-head"><div><div class="eyebrow">Accounts</div><h2>已有账号</h2></div></div><div id="userList"></div></section>
     </div>
 
@@ -143,7 +143,7 @@
       <div class="user-basic-settings">
         <label class="user-setting-row"><span><strong>登录账号</strong><small>3–24 位字母、数字、_ 或 -</small></span><input id="editUsername" required></label>
         <label class="user-setting-row"><span><strong>显示名称</strong><small>在聊天和管理后台显示</small></span><input id="editDisplayName" required></label>
-        <label class="user-setting-row"><span><strong>新密码</strong><small>留空表示不修改，至少 4 位</small></span><input id="editPassword" autocomplete="new-password" type="password" minlength="4"></label>
+        <label class="user-setting-row"><span><strong>新密码</strong><small>留空不修改；成员至少 8 位，管理员至少 12 位</small></span><input id="editPassword" autocomplete="new-password" type="password" minlength="8"></label>
         <label class="user-setting-row"><span><strong>账号角色</strong><small>管理员始终拥有全部功能权限</small></span><select id="editRole"><option value="member">成员</option><option value="admin">管理员</option></select></label>
         <label class="user-setting-row"><span><strong>账号状态</strong><small>停用后会立即退出所有设备</small></span><select id="editActive"><option value="true">启用</option><option value="false">停用</option></select></label>
         <label class="user-setting-row"><span><strong>私人网盘额度</strong><small>单位为 MB</small></span><input id="editDriveQuotaMB" type="number" min="0" required></label>

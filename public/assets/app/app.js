@@ -47,7 +47,8 @@
   function notice(message, kind = 'success') { clearTimeout(noticeTimer); $('#appNotice').hidden = !message; $('#appNotice').textContent = message || ''; $('#appNotice').dataset.kind = kind; if (message && kind !== 'error') noticeTimer = setTimeout(() => { $('#appNotice').hidden = true; }, 5000); }
   async function api(url, options = {}) {
     if (offline && options.method && options.method !== 'GET') throw new Error('离线日程为只读，请连接服务器后修改');
-    let response; try { response = await fetch(url, { ...options, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options.headers } }); } catch (error) { error.network = true; throw error; }
+    const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), !options.method || options.method === 'GET' ? 15000 : 120000);
+    let response; try { response = await fetch(url, { ...options, signal: options.signal || controller.signal, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options.headers } }); } catch (error) { error.network = true; throw error; } finally { clearTimeout(timeout); }
     const result = await response.json();
     if (!response.ok) { if (response.status === 401) { window.PolynomialCalendarCache?.clear(); window.__TAURI__?.core?.invoke('clear_reminders').catch(() => {}); location.href = '/login.html?next=%2Fapp.html'; } throw new Error(result.error || '操作失败，请重试'); }
     return result;
