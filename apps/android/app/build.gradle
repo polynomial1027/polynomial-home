@@ -3,7 +3,7 @@ android {
     namespace 'com.polynomial.server'
     compileSdk 35
     buildFeatures { buildConfig true }
-    defaultConfig { applicationId 'com.polynomial.server'; minSdk 29; targetSdk 35; versionCode 38; versionName '0.3.8' }
+    defaultConfig { applicationId 'com.polynomial.server'; minSdk 29; targetSdk 35; versionCode 312; versionName '0.3.12' }
     signingConfigs {
         upload {
             storeType 'PKCS12'

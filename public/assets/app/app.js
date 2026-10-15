@@ -176,7 +176,8 @@
     document.querySelectorAll('[data-offline-disabled]').forEach(node => { node.disabled = node.dataset.offlineDisabled === 'true'; delete node.dataset.offlineDisabled; });
     document.body.classList.toggle('offline-mode', offline);
     const user = data.user;
-    $('#userName').textContent = user.displayName; $('#accountButton').textContent = user.displayName.slice(0, 1); $('#accountAvatar').textContent = user.displayName.slice(0, 1);
+    $('#userName').textContent = user.displayName; $('#accountButton').textContent = user.displayName.slice(0, 1); $('#accountAvatar').textContent = user.profile?.emoji || user.displayName.slice(0, 1);
+    for(const selector of ['#accountButton','#accountAvatar']){const node=$(selector);if(user.profile?.avatarUrl){node.innerHTML=`<img class="profile-picture" src="${esc(user.profile.avatarUrl)}" alt="">`;}node.classList.remove('profile-color-jade','profile-color-blue','profile-color-violet','profile-color-rose','profile-color-amber');node.classList.add(`profile-color-${user.profile?.color||'jade'}`);}
     $('#accountName').textContent = user.displayName; $('#accountRole').textContent = user.role === 'admin' ? `管理员 · @${user.username}` : `成员 · @${user.username}`; $('#serverAddress').textContent = location.origin;
     document.querySelectorAll('.admin-only').forEach(node => { node.hidden = user.role !== 'admin'; });
     document.querySelectorAll('.planner-only').forEach(node => { node.hidden = !permitted('accessPlanner'); });
@@ -185,6 +186,8 @@
     if (offline) { for (const node of document.querySelectorAll('[data-add-task],[data-edit-task],[data-delete-task],[data-pause-task],[data-task-toggle],#enableReminders,#disableReminders,#testReminders,#saveBrief')) { node.dataset.offlineDisabled = String(node.disabled); node.disabled = true; } $('#accountRole').textContent = '离线日程副本 · 只读'; }
     document.dispatchEvent(new CustomEvent('polynomial-snapshot', { detail: { data, admin, butler, offline } }));
   }
+  let adminRefresh=null;
+  function refreshAdmin(){if(adminRefresh)return adminRefresh;adminRefresh=Promise.allSettled([api('/api/admin/assistant'),api('/api/admin/butler')]).then(results=>{if(data?.user.role!=='admin'||offline)return;admin=results[0].status==='fulfilled'?results[0].value:admin;butler=results[1].status==='fulfilled'?results[1].value:butler;renderAdmin();document.dispatchEvent(new CustomEvent('polynomial-snapshot',{detail:{data,admin,butler,offline}}));}).finally(()=>{adminRefresh=null;});return adminRefresh;}
   let refreshTail = Promise.resolve();
   function refresh() { const run = refreshTail.catch(() => {}).then(refreshSnapshot); refreshTail = run; return run; }
   async function refreshSnapshot() {
@@ -196,8 +199,9 @@
       if (aiWorkspace.initial(snapshot)) snapshot = await api(`/api/workspace?sessionId=${encodeURIComponent(aiWorkspace.requestId())}`);
       const stored = window.PolynomialCalendarCache?.load(); if (stored && stored.user.id !== snapshot.user.id) window.PolynomialCalendarCache.clear();
       data = snapshot; offline = false; window.PolynomialCalendarCache?.save(data);
-      if (data.user.role === 'admin') { const results = await Promise.allSettled([api('/api/admin/assistant'), api('/api/admin/butler')]); admin = results[0].status === 'fulfilled' ? results[0].value : admin; butler = results[1].status === 'fulfilled' ? results[1].value : butler; }
-      render(); maybeBrief(); window.PolynomialReminderUI?.sync(data).catch(error => console.warn('Reminder sync:', error));
+      render();
+      if(data.user.role==='admin')refreshAdmin();
+      maybeBrief(); window.PolynomialReminderUI?.sync(data).catch(error => console.warn('Reminder sync:', error));
       $('#connectionStatus').textContent = `已同步 · ${new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })}`;
       updateDraft();
     } catch (error) {
@@ -283,7 +287,7 @@
   $('#taskSearch').oninput = renderAgenda;
   const changeMonth = offset => { const [year, number] = month.split('-').map(Number); month = new Date(Date.UTC(year, number - 1 + offset, 1)).toISOString().slice(0, 7); renderCalendar(); };
   $('#appPrevMonth').onclick = () => changeMonth(-1); $('#appNextMonth').onclick = () => changeMonth(1); $('#appToday').onclick = () => { selected = day(new Date()); month = selected.slice(0, 7); renderCalendar(); };
-  $('#appButlerForm').onsubmit = action(async () => { const button = $('#appButlerForm button'); button.disabled = true; try { await api('/api/admin/butler', { method: 'POST', body: JSON.stringify({ message: $('#appButlerMessage').value.trim() }) }); $('#appButlerMessage').value = ''; await refresh(); $('#appButlerThread').scrollTop = $('#appButlerThread').scrollHeight; } finally { button.disabled = false; } });
+  $('#appButlerForm').onsubmit = action(async () => { const button = $('#appButlerForm button'); button.disabled = true; try { await api('/api/admin/butler', { method: 'POST', body: JSON.stringify({ message: $('#appButlerMessage').value.trim() }) }); $('#appButlerMessage').value = ''; await refresh(); await refreshAdmin(); $('#appButlerThread').scrollTop = $('#appButlerThread').scrollHeight; } finally { button.disabled = false; } });
   $('#appReview').onclick = action(async () => { const button = $('#appReview'); button.disabled = true; notice('AI 正在分析服务器报告，请稍候…'); try { await api('/api/admin/assistant/review', { method: 'POST' }); await refresh(); notice('AI 巡检已完成，可展开最近巡检结果和任务历史查看。'); } catch (error) { await refresh(); throw error; } finally { button.disabled = !admin?.configured || !admin?.settings.assistantEnabled; } });
   $('#refreshHealth').onclick = action(async () => { const button = $('#refreshHealth'); button.disabled = true; try { await api('/api/admin/health/run', { method: 'POST' }); await refresh(); notice('基础报告已刷新。'); } finally { button.disabled = false; } });
   $('#reviewScheduleForm').onsubmit = action(async () => { const button = $('#reviewScheduleForm button'); button.disabled = true; try { await api('/api/admin/assistant', { method: 'PATCH', body: JSON.stringify({ assistantReviewFrequency: $('#appReviewFrequency').value }) }); await refresh(); notice('自动巡检间隔已保存。'); } finally { button.disabled = false; } });
@@ -309,6 +313,7 @@
   $('#refreshApp').onclick = action(async () => { await refresh(); notice('数据已同步。'); }); $('#accountButton').onclick = () => { location.hash = 'account'; };
   window.addEventListener('hashchange', () => route()); window.addEventListener('offline', () => { const cached = window.PolynomialCalendarCache?.load(); if (cached) { data = cached; admin = null; butler = null; offline = true; render(); $('#connectionStatus').textContent = `离线副本 · ${fullTime(cached.savedAt)}`; } else { offline = true; document.body.classList.add('offline-mode'); $('#connectionStatus').textContent = '已离线'; } notice('网络已断开，日程暂为只读；恢复后自动同步。', 'error'); }); window.addEventListener('online', action(refresh));
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyAppearance);
+  document.addEventListener('polynomial-profile-saved',event=>{if(data){data.user=event.detail;render();}});
   updateTime(); route(false); setInterval(updateTime, 60000); setInterval(() => { if (!document.hidden && !busy && !$('#taskDialog').open) refresh().catch(error => notice(error.message, 'error')); }, 60000);
   refresh().catch(error => notice(error.message, 'error'));
   async function checkClientUpdate() {

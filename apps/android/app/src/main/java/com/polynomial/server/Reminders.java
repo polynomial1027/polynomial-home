@@ -80,6 +80,28 @@ public final class Reminders extends BroadcastReceiver {
             if (permitted(activity)) schedule(activity, tasks);
         } catch (Exception ignored) {}
     }
+    @JavascriptInterface public void enableMessages() {
+        if (activity == null) return;
+        activity.runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT >= 33 && !permitted(activity)) activity.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 202);
+        });
+    }
+    @JavascriptInterface public void notifyMessage(String payload) {
+        if (activity == null || !permitted(activity) || payload == null || payload.length() > 2000) return;
+        try {
+            JSONObject data = new JSONObject(payload);
+            String id = data.optString("id"), room = data.optString("conversationId"), body = data.optString("body");
+            if (!id.matches("[a-f0-9-]{36}") || !(room.equals("lobby") || room.matches("[a-f0-9-]{36}")) || body.length() > 160) return;
+            activity.runOnUiThread(() -> {
+                NotificationManager manager = (NotificationManager) activity.getSystemService(Context.NOTIFICATION_SERVICE);
+                manager.createNotificationChannel(new NotificationChannel("messages", "聊天消息", NotificationManager.IMPORTANCE_HIGH));
+                Intent open = new Intent(activity, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("chatRoom", room);
+                PendingIntent tap = PendingIntent.getActivity(activity, id.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                Notification notification = new Notification.Builder(activity, "messages").setSmallIcon(R.drawable.app_icon).setContentTitle("新消息").setContentText(body).setAutoCancel(true).setContentIntent(tap).build();
+                manager.notify(id.hashCode(), notification);
+            });
+        } catch (Exception ignored) {}
+    }
     @JavascriptInterface public void testNotification() {
         if (activity == null || !enabled()) return;
         activity.runOnUiThread(() -> {

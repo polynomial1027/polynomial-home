@@ -1,0 +1,12 @@
+const test=require('node:test'),assert=require('node:assert/strict'), messaging=require('../lib/messaging'),profiles=require('../lib/profiles');
+const user=id=>({id,active:true,role:'member',displayName:id,permissions:{accessChat:true}});
+test('inbox and read markers isolate rooms and reject older read acknowledgements',()=>{
+ const a=user('a'),b=user('b'),outsider=user('c'),state={users:[a,b,outsider],conversations:[{id:'private',memberIds:['a','b'],type:'direct'}],messages:[{id:'one',conversationId:'private',userId:'a',text:'secret'},{id:'two',conversationId:'private',userId:'a',text:'next'}]};
+ assert.equal(messaging.inbox(state,outsider,'one').events.length,0);assert.equal(messaging.inbox(state,b).unreadTotal,2);assert.equal(messaging.read(state,b,'private','two'),true);assert.equal(messaging.read(state,b,'private','one'),false);assert.equal(messaging.inbox(state,b).unreadTotal,0);assert.throws(()=>messaging.read(state,outsider,'private','two'));b.permissions.accessChat=false;assert.equal(messaging.inbox(state,b).events.length,0);
+});
+test('message push respects permissions, privacy and online delivery',async()=>{
+ const a=user('a'),b=user('b'),c=user('c'),state={users:[a,b,c],conversations:[{id:'private',memberIds:['a','b']}],messages:[],pushSubscriptions:[{userId:'b',endpoint:'b',keys:{}},{userId:'c',endpoint:'c',keys:{}}]};b.profile={messagePreview:false};const sent=[];const options={state,save:()=>{},message:{id:'m',userId:'a',conversationId:'private',displayName:'A',text:'secret'},send:async(sub,body)=>sent.push(JSON.parse(body))};await messaging.push(options);assert.equal(sent.length,1);assert.doesNotMatch(sent[0].body,/secret/);await messaging.push({...options,online:()=>true});assert.equal(sent.length,1);b.profile.messageNotifications=false;await messaging.push(options);assert.equal(sent.length,1);
+});
+test('profile rejects executable avatars and stale edits without touching credentials',()=>{
+ const a=user('a'),input={displayName:'Alice',bio:'Hello',emoji:'🌿',color:'blue',compact:false,messageNotifications:true,messagePreview:false,messageSound:false,ifUnmodifiedSince:null,role:'admin'};profiles.update(a,input);assert.equal(a.role,'member');assert.equal(a.profile.bio,'Hello');assert.throws(()=>profiles.update(a,input),/其他设备/);assert.throws(()=>profiles.update(a,{...input,ifUnmodifiedSince:a.profile.updatedAt,avatar:'data:image/svg+xml;base64,PHN2Zz4='}));assert.equal(a.profile.avatar,undefined);
+});

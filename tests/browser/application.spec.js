@@ -104,6 +104,7 @@ test('administrator MFA requires a factor after password and uses recovery codes
   await page.locator('#appLogout').click(); await page.locator('#username').fill('fixtureadmin'); await page.locator('#password').fill('fixture-admin-password'); await page.locator('#loginForm button').click();
   await expect(page.locator('#loginOtpField')).toBeVisible(); await page.locator('#loginOtp').fill(codes[0]); await page.locator('#loginForm button').click(); await expect(page.locator('#userName')).toHaveText('Polynomial');
   const response = await page.request.post('/api/login', { data: { username: 'fixtureadmin', password: 'fixture-admin-password', code: codes[0] } }); expect(response.status()).toBe(401);
+  expect((await page.request.post('/api/account/mfa/disable',{data:{password:'fixture-admin-password',code:codes[1]}})).status()).toBe(200);
 });
 
 test('download can be tracked and cancelled after changing filters and categories', async ({ page }) => {
@@ -206,4 +207,35 @@ test('AI toolbox stores private reusable prompts and reviews a text attachment b
   try { const api = otherContext.request; await api.post('/api/login', { data: { username: 'fixtureother', password: 'fixture-other-password' } }); expect((await api.get(`/api/account/ai/sessions/${id}`)).status()).toBe(404); expect((await api.get(`/api/workspace?sessionId=${id}`)).status()).toBe(404); expect(JSON.stringify(await (await api.get('/api/workspace')).json())).not.toContain('private-template-sentinel'); } finally { await otherContext.close(); }
   await page.setViewportSize({ width: 390, height: 844 }); await expect(page.locator('#sendChat')).toBeInViewport(); await page.locator('#toggleAiSessions').click(); await expect(page.locator('#aiSessionSearch')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('messages reach another account and recover after a lost socket without duplication', async ({ browser }) => {
+  const a=await browser.newContext(),b=await browser.newContext(),sender=await a.newPage(),receiver=await b.newPage();
+  try {
+    await login(sender);await receiver.goto('/login.html?next=%2Fchat.html');await receiver.locator('#username').fill('fixtureother');await receiver.locator('#password').fill('fixture-other-password');await receiver.locator('#loginForm button').click();await receiver.waitForURL('**/chat.html');
+    const list=await(await sender.request.get('/api/users')).json(),other=list.users.find(u=>u.username==='fixtureother');
+    const created=await(await sender.request.post('/api/conversations',{data:{type:'direct',memberIds:[other.id]}})).json(),room=created.conversation.id;
+    await Promise.all([sender.goto(`/chat.html#room=${room}`),receiver.goto(`/chat.html#room=${room}`)]);
+    await expect(receiver.locator('#messageInput')).toBeEnabled();await sender.locator('#messageInput').fill('实时送达测试');await sender.locator('#chatForm button:last-child').click();await expect(receiver.locator('#messages')).toContainText('实时送达测试');
+    await b.setOffline(true);await sender.locator('#messageInput').fill('断线后补收测试');await sender.locator('#chatForm button:last-child').click();await expect(sender.locator('#chatSendStatus')).toContainText('服务器已保存');await b.setOffline(false);
+    await expect(receiver.locator('#messages')).toContainText('断线后补收测试',{timeout:15000});await expect(receiver.locator('#messages .message').filter({hasText:'断线后补收测试'})).toHaveCount(1);
+    const key=require('node:crypto').randomUUID(),payload={conversationId:room,text:'重试不重复',clientId:key};const first=await(await sender.request.post('/api/messages',{data:payload})).json(),second=await(await sender.request.post('/api/messages',{data:payload})).json();expect(second.message.id).toBe(first.message.id);
+    await receiver.goto('/app.html#account');if(await receiver.locator('#briefDialog').isVisible())await receiver.locator('[data-close-dialog="briefDialog"]').click();
+    await sender.request.post('/api/messages',{data:{conversationId:room,text:'个人空间接收提醒'}});await expect(receiver.locator('#incomingMessage')).toContainText('个人空间接收提醒',{timeout:12000});
+  } finally {await a.close();await b.close();}
+});
+
+test('profile photo and preferences persist and member cannot change role', async ({ page }) => {
+  await login(page,true);await page.goto('/app.html#account');await expect(page.locator('#profileForm input[name=displayName]')).toHaveValue('测试成员');
+  await page.locator('#profileForm input[name=displayName]').fill('测试成员');await page.locator('#profileForm input[name=emoji]').fill('🌿');await page.locator('#profileForm textarea[name=bio]').fill('我的自定义简介');await page.locator('#profileForm select[name=color]').selectOption('violet');
+  await page.locator('#avatarFile').setInputFiles({name:'avatar.png',mimeType:'image/png',buffer:Buffer.from(await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=20;const g=c.getContext('2d');g.fillStyle='green';g.fillRect(0,0,20,20);return c.toDataURL('image/png').split(',')[1];}),'base64')});await expect(page.locator('#profilePreview img')).toBeVisible();await page.locator('#profileForm button[type=submit]').click();await expect(page.locator('#profileStatus')).toContainText('已保存');
+  await page.reload();await expect(page.locator('#accountAvatar img')).toBeVisible();await expect(page.locator('#profileForm textarea[name=bio]')).toHaveValue('我的自定义简介');
+  const me=await(await page.request.get('/api/me')).json(),p=me.user.profile;expect(p.avatar).toBeUndefined();expect(p.avatarUrl).toContain('/api/avatars/');expect((await page.request.get(p.avatarUrl)).headers()['content-type']).toBe('image/jpeg');
+  const response=await page.request.patch('/api/account/profile',{data:{...p,displayName:'测试成员',role:'admin',ifUnmodifiedSince:p.updatedAt}});expect(response.status()).toBe(200);expect((await(await page.request.get('/api/me')).json()).user.role).toBe('member');
+  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('slow admin data does not delay the ordinary workspace', async ({page})=>{
+  await login(page);await page.route('**/api/admin/assistant',async route=>{await new Promise(r=>setTimeout(r,4000));try{await route.continue();}catch{}});await page.route('**/api/admin/butler',async route=>{await new Promise(r=>setTimeout(r,4000));try{await route.continue();}catch{}});
+  await page.goto('/app.html#calendar');await expect(page.locator('#appContent')).toHaveAttribute('aria-busy','false',{timeout:2500});await page.locator('[data-add-task]:visible').first().click();await expect(page.locator('#taskDialog')).toBeVisible();
 });

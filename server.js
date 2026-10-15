@@ -23,6 +23,7 @@ const aiRecords = require('./lib/ai-records');
 const chatService = require('./lib/chat-service');
 const plannerService = require('./lib/planner');
 const reminders = require('./lib/reminders');
+const profiles = require('./lib/profiles'), messaging = require('./lib/messaging');
 const webpush = require('web-push');
 const adminButler = require('./lib/admin-butler');
 const { priceWindow, safeOffPeakStart } = require('./lib/pricing');
@@ -145,7 +146,7 @@ const currentUser = req => {
   const session = state.sessions.find(s => s.token === token && new Date(s.expiresAt) > new Date());
   return session ? state.users.find(u => u.id === session.userId && u.active) : null;
 };
-const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, permissions: u.permissions, driveQuotaMB: u.driveQuotaMB, createdAt: u.createdAt });
+const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, permissions: u.permissions, profile: profiles.view(u), driveQuotaMB: u.driveQuotaMB, createdAt: u.createdAt });
 const allowed = (user, permission) => user?.role === 'admin' || user?.permissions?.[permission] === true;
 const denyUnless = (res, user, permission, message = '此账号未开放该功能') => { if (allowed(user, permission)) return true; json(res, 403, { error: message }); return false; };
 const goWss = new WebSocketServer({ noServer: true });
@@ -850,6 +851,26 @@ async function api(req, res, url) {
   const adminGoPuzzleMatch = url.pathname.match(/^\/api\/admin\/go\/puzzles\/([^/]+)$/);
   if (adminGoPuzzleMatch && req.method === 'PATCH') { const admin = requireUser(req, res, 'admin'); if (!admin) return; return json(res, 200, { puzzle: goService.savePuzzle(admin, await body(req), adminGoPuzzleMatch[1]) }); }
   if (adminGoPuzzleMatch && req.method === 'DELETE') { const admin = requireUser(req, res, 'admin'); if (!admin) return; goService.deletePuzzle(admin, adminGoPuzzleMatch[1]); return json(res, 200, { ok: true }); }
+  if (url.pathname === '/api/account/profile' && req.method === 'PATCH') {
+    const user = requireUser(req,res); if(!user)return;
+    try { profiles.update(user,await body(req)); save(state); broadcast({type:'profile-updated',userId:user.id}); return json(res,200,{user:publicUser(user)}); }
+    catch(error){return json(res,error.status||400,{error:error.message});}
+  }
+  const avatarMatch = url.pathname.match(/^\/api\/avatars\/([a-f0-9-]{36})$/);
+  if(avatarMatch && req.method === 'GET') {
+    if(!requireUser(req,res))return; const avatar=state.users.find(u=>u.id===avatarMatch[1]&&u.active)?.profile?.avatar;
+    if(!avatar)return json(res,404,{error:'头像不存在'});
+    const [header,content]=avatar.split(','); res.writeHead(200,{'Content-Type':header.includes('png')?'image/png':'image/jpeg','Cache-Control':'private, max-age=300','X-Content-Type-Options':'nosniff'});return res.end(Buffer.from(content,'base64'));
+  }
+  if(url.pathname === '/api/chat/inbox' && req.method === 'GET') {
+    const user=requireUser(req,res);if(!user)return;if(!denyUnless(res,user,'accessChat'))return;
+    return json(res,200,messaging.inbox(state,user,url.searchParams.get('after')));
+  }
+  if(url.pathname === '/api/chat/read' && req.method === 'POST') {
+    const user=requireUser(req,res);if(!user)return; const input=await body(req);
+    if(messaging.read(state,user,String(input.conversationId),String(input.messageId)))save(state);
+    return json(res,200,{ok:true});
+  }
   if (url.pathname === '/api/messages' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
@@ -864,6 +885,8 @@ async function api(req, res, url) {
     if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
     if (conversationId === 'lobby' && !denyUnless(res, user, 'postLobby', '此账号只能查看大厅，不能发言')) return;
     if (!conversationFor(conversationId, user)) return json(res, 403, { error: '无权向该聊天发送消息' });
+    if(data.clientId && !/^[a-f0-9-]{36}$/.test(data.clientId)) return json(res,400,{error:'发送标识无效'});
+    const existing=messaging.duplicate(state,user,data);if(existing)return json(res,200,{message:existing});
     const filteredText = filterSensitiveText(String(data.text || '').trim().slice(0, Number(state.settings.maxMessageLength) || 1000)); if (filteredText.error) return json(res, 400, { error: filteredText.error });
     const attachmentIds = Array.isArray(data.attachmentIds) ? data.attachmentIds.slice(0, Number(state.settings.maxAttachmentsPerMessage) || 5) : [];
     const attachments = attachmentIds.map(id => state.files.find(file => file.id === id && file.uploadedBy === user.id && file.conversationId === conversationId)).filter(Boolean).map(file => ({ id: file.id, originalName: file.originalName, mimeType: file.mimeType, size: file.size }));
@@ -872,8 +895,8 @@ async function api(req, res, url) {
     if (!filteredText.text && !attachments.length) return json(res, 400, { error: '消息或附件不能为空' });
     const replyTarget = data.replyToId ? state.messages.find(message => message.id === data.replyToId && message.conversationId === conversationId) : null;
     const replyTo = replyTarget ? { id: replyTarget.id, displayName: replyTarget.displayName, text: replyTarget.text.slice(0, 160) } : null;
-    const message = { id: crypto.randomUUID(), conversationId, userId: user.id, username: user.username, displayName: user.displayName, text: filteredText.text, attachments, replyTo, createdAt: new Date().toISOString() };
-    state.messages.push(message); state.messages = state.messages.slice(-10000); save(state); broadcast({ type: 'message', message }, conversationId); return json(res, 201, { message });
+    const message = { id: crypto.randomUUID(), clientId: data.clientId || null, conversationId, userId: user.id, username: user.username, displayName: user.displayName, text: filteredText.text, attachments, replyTo, createdAt: new Date().toISOString() };
+    state.messages.push(message); state.messages = state.messages.slice(-10000); save(state); broadcast({ type: 'message', message }, conversationId); queueChatPush(message); return json(res, 201, { message });
   }
   if (url.pathname === '/api/admin/messages' && req.method === 'GET') {
     if (!requireUser(req, res, 'admin')) return;
@@ -907,9 +930,7 @@ async function api(req, res, url) {
   if (url.pathname === '/api/conversations' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
-    const visible = state.conversations.filter(item => user.role === 'admin' || item.memberIds.includes(user.id)).map(publicConversation);
-    const withRecent = item => { const latest = state.messages.findLast(message => message.conversationId === item.id); return { ...item, latest: latest ? { text: latest.text?.slice(0, 90) || '[附件]', at: latest.createdAt, displayName: latest.displayName } : null }; };
-    return json(res, 200, { conversations: [{ id: 'lobby', title: '聊天大厅', type: 'lobby', memberIds: [] }, ...visible].map(withRecent), users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active).map(publicUser) : [] });
+    return json(res, 200, { ...messaging.inbox(state,user), users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active).map(publicUser) : [] });
   }
   if (url.pathname === '/api/conversations' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; const data = await body(req);
@@ -1235,7 +1256,13 @@ function staticFile(req, res, url) {
     if (!err && stat.isDirectory()) file = path.join(target, 'index.html');
     fs.readFile(file, (readErr, data) => {
       if (readErr) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
-      res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin' }); res.end(data);
+      const etag='"'+crypto.createHash('sha256').update(data).digest('base64url')+'"';
+      const headers={'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache','ETag':etag,'Vary':'Accept-Encoding','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin'};
+      if(req.headers['if-none-match']===etag){res.writeHead(304,headers);return res.end();}
+      if(data.length>1024&&/\.(?:js|css|html|json|svg)$/.test(file)&&/\bgzip\b/.test(req.headers['accept-encoding']||'')){
+        return require('node:zlib').gzip(data,(error,compressed)=>{if(error){res.writeHead(200,headers);return res.end(data);}res.writeHead(200,{...headers,'Content-Encoding':'gzip'});res.end(compressed);});
+      }
+      res.writeHead(200,headers);res.end(data);
     });
   });
 }
@@ -1278,8 +1305,15 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 const broadcast = (data, conversationId = null) => {
   const payload = JSON.stringify(data);
-  wss.clients.forEach(client => { if (client.readyState === 1 && (!conversationId || conversationFor(conversationId, client.user))) client.send(payload); });
+  wss.clients.forEach(client => { const user=currentUser({headers:{cookie:`session=${client.sessionToken}`}}); if(!user||!allowed(user,'accessChat'))return client.close(4001,'unauthorized'); if(client.readyState===1&&(!conversationId||conversationFor(conversationId,user)))client.send(payload); });
 };
+const chatPushQueue=[]; let chatPushRunning=false;
+function queueChatPush(message){
+  if(chatPushQueue.length>=200)return; chatPushQueue.push(message);
+  if(chatPushRunning)return;chatPushRunning=true;
+  setImmediate(async()=>{try{while(chatPushQueue.length)await messaging.push({state,save,message:chatPushQueue.shift(),online:id=>[...wss.clients].some(c=>c.readyState===1&&c.user?.id===id)});}finally{chatPushRunning=false;}});
+}
+const chatHeartbeat=setInterval(()=>{for(const ws of wss.clients){const user=currentUser({headers:{cookie:`session=${ws.sessionToken}`}});if(!user||!allowed(user,'accessChat')){ws.close(4001);continue;}if(!ws.alive){ws.terminate();continue;}ws.alive=false;ws.ping();}},30000);chatHeartbeat.unref();
 server.on('upgrade', async (req, socket, head) => {
   try {
     const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -1289,6 +1323,7 @@ server.on('upgrade', async (req, socket, head) => {
       return goWss.handleUpgrade(req, socket, head, ws => goWss.emit('connection', ws, req));
     }
     if (pathname === '/chat-socket') {
+      if(req.headers.origin && req.headers.origin !== `${req.socket.encrypted ? 'https' : String(req.headers['x-forwarded-proto'] || 'http').split(',')[0]}://${req.headers.host}`)return socket.destroy();
       if (!user || !allowed(user, 'accessChat')) return socket.destroy();
       return wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
     }
@@ -1320,22 +1355,8 @@ goWss.on('connection', (ws, req) => {
   });
 });
 wss.on('connection', (ws, req) => {
-  const user = currentUser(req); ws.user = user; ws.send(JSON.stringify({ type: 'ready', user: publicUser(user) }));
-  ws.on('message', raw => {
-    try {
-      const data = JSON.parse(raw); const filteredText = filterSensitiveText(String(data.text || '').trim().slice(0, Number(state.settings.maxMessageLength) || 1000)); if (filteredText.error) { ws.send(JSON.stringify({ type: 'error', error: filteredText.error })); return; } const text = filteredText.text; const conversationId = String(data.conversationId || 'lobby');
-      if (!conversationFor(conversationId, user)) return;
-      if (conversationId === 'lobby' && !allowed(user, 'postLobby')) { ws.send(JSON.stringify({ type: 'error', error: '此账号不能在大厅发言' })); return; }
-      const attachmentIds = Array.isArray(data.attachmentIds) ? data.attachmentIds.slice(0, Number(state.settings.maxAttachmentsPerMessage) || 5) : [];
-      const attachments = attachmentIds.map(id => state.files.find(file => file.id === id && file.uploadedBy === user.id && file.conversationId === conversationId)).filter(Boolean).map(file => ({ id: file.id, originalName: file.originalName, mimeType: file.mimeType, size: file.size }));
-      if (!text && !attachments.length) return;
-      const replyTarget = data.replyToId ? state.messages.find(message => message.id === data.replyToId && message.conversationId === conversationId) : null;
-      const replyTo = replyTarget ? { id: replyTarget.id, displayName: replyTarget.displayName, text: replyTarget.text.slice(0, 160) } : null;
-      const message = { id: crypto.randomUUID(), conversationId, userId: user.id, username: user.username, displayName: user.displayName, text, attachments, replyTo, createdAt: new Date().toISOString() };
-      state.messages.push(message); state.messages = state.messages.slice(-1000); save(state);
-      broadcast({ type: 'message', message }, conversationId);
-    } catch (error) { console.error('WebSocket message error:', error); try { ws.send(JSON.stringify({ type: 'error', error: '消息发送失败，请重试' })); } catch {} }
-  });
+  const user = currentUser(req); if(!user)return ws.close(4001); ws.user = user; ws.sessionToken=cookies(req).session; ws.alive=true; ws.on('pong',()=>{ws.alive=true;}); ws.send(JSON.stringify({ type: 'ready', user: publicUser(user) }));
+  ws.on('message', raw => { try { if(JSON.parse(raw).type==='ping')ws.send(JSON.stringify({type:'pong'})); } catch {} });
 });
 
 let notebookCleanupRunning = false;
