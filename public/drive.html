@@ -32,7 +32,7 @@
     <section class="panel file-browser" id="driveFiles"></section>
   </main>
 
-  <dialog class="dialog" id="shareDialog"><form method="dialog" id="shareForm"><div class="dialog-head"><h2>分享文件</h2><button value="cancel">×</button></div><input id="shareFileId" type="hidden"><div class="field"><label>分享给</label><select id="shareRecipient"></select></div><div class="notice" id="shareNotice"></div><button class="button">确认分享</button></form></dialog>
+  <dialog class="dialog" id="shareDialog"><form method="dialog" id="shareForm"><div class="dialog-head"><h2>分享文件</h2><button type="button" value="cancel" onclick="this.closest('dialog').close()" aria-label="关闭">×</button></div><input id="shareFileId" type="hidden"><div class="field"><label>分享给</label><select id="shareRecipient"></select></div><div class="notice" id="shareNotice"></div><button class="button">确认分享</button></form></dialog>
   <script src="/assets/site.js"></script><script src="/assets/drive.js"></script>
 </body>
 </html>

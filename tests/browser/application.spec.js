@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./button-audit-fixture.cjs');
 const { codeAt } = require('../../lib/security');
 async function login(page, member = false) {
   await page.goto('/login.html?next=%2Fapp.html');

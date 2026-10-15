@@ -26,8 +26,7 @@ async function initLearningLab() {
   const firstLessonId = allLessons()[0]?.id;
   learning.currentLessonId = null;
   renderDirectory(); showLesson(firstLessonId); showLimits();
-  if (learning.canRun) await refreshNotebookStatus(); else setWorkspaceAccess(false, '未开放代码运行权限');
-  await Promise.all(assignmentIds().map(id => loadRecords(id, false)));
+  if (learning.canRun) refreshNotebookStatus().catch(console.warn); else setWorkspaceAccess(false, '未开放代码运行权限');
   updateProgress();
   if (params.get('lab') === '1') le('codeWorkspace').scrollIntoView({ behavior: 'smooth', block: 'start' });
   le('courseMenu').onclick = () => le('chapterList').classList.toggle('collapsed');
@@ -42,6 +41,8 @@ async function initLearningLab() {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); runCode(); }
   });
   document.querySelector('#completedCount').title = `当前账号：${user.displayName}`;
+  // Bind controls before filling background submission history; cap network concurrency.
+  (async () => { const ids = assignmentIds(); for (let index = 0; index < ids.length; index += 4) await Promise.all(ids.slice(index, index + 4).map(id => loadRecords(id, false))); updateProgress(); })().catch(console.warn);
 }
 
 function renderDirectory() {

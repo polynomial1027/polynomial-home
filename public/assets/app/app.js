@@ -297,7 +297,8 @@
   function renderCommands() {
     const query = $('#commandQuery').value.trim().toLowerCase();
     const pages = Object.entries(pageNames).filter(([name]) => name !== 'control' || data?.user.role === 'admin').map(([name, title]) => [null, name === 'assistant' ? 'spark' : name === 'control' ? 'shield' : name === 'account' ? 'user' : name, title, '应用页面', `#${name}`]);
-    const unique = [...new Map([...pages, ...tools()].map(entry => [entry[4], entry])).values()].filter(entry => `${entry[2]} ${entry[3]}`.toLowerCase().includes(query));
+    const aliases = { '#calendar': '日程 安排 提醒 日期', '#assistant': 'AI 人工智能 DeepSeek', '#account': '头像 昵称 资料 设置', '/chat.html': '消息 聊天', '/drive.html': '文件 网盘' };
+    const unique = [...new Map([...pages, ...tools()].map(entry => [entry[4], entry])).values()].filter(entry => `${entry[2]} ${entry[3]} ${aliases[entry[4]] || ''}`.toLowerCase().includes(query));
     const taskResults = (data?.planner || []).filter(item => !item.done && (!query || item.title.toLowerCase().includes(query))).slice(0, 8);
     $('#commandResults').innerHTML = unique.map(([, symbol, title, description, href]) => `<a class="command-result" href="${href}"><span data-icon="${symbol}">${icon(symbol)}</span><span>${title}<small>${description}</small></span><span class="result-arrow">↗</span></a>`).join('') + taskResults.map(item => `<button class="command-result" type="button" data-command-task="${item.id}"><span data-icon="calendar">${icon('calendar')}</span><span>${esc(item.title)}<small>${item.dueAt ? time(item.dueAt) : '未设置时间'}</small></span><span class="result-arrow">↗</span></button>`).join('');
     if (!unique.length && !taskResults.length) $('#commandResults').innerHTML = empty('search', '没有找到结果', '试试更短的关键词。');

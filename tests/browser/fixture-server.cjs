@@ -4,6 +4,7 @@ const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'polynomial-browser-'));
 process.env.POLYNOMIAL_DATA_DIR = directory; process.env.ADMIN_USERNAME = 'fixtureadmin'; process.env.ADMIN_PASSWORD = 'fixture-admin-password';
 const store = require('../../lib/store'), state = store.load();
 state.settings.automaticBackup = false;
+state.settings.assistantEnabled = true;
 state.users.push(store.normalizeUser({ id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', username: 'fixturemember', displayName: '测试成员', role: 'member', active: true, passwordHash: store.hashPassword('fixture-member-password'), createdAt: new Date().toISOString() }));
 state.users.find(row => row.username === 'fixturemember').permissions.accessAssistant = true;
 state.assistantChats.push({ userId: state.users[0].id, role: 'assistant', content: 'admin-private-history-sentinel', at: new Date().toISOString() }, ...Array.from({ length: 25 }, (_, index) => ({ userId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', role: index % 2 ? 'assistant' : 'user', content: `member-history-${index} 安排`, at: new Date(Date.now() + index).toISOString() })));
@@ -13,7 +14,7 @@ fs.mkdirSync(path.join(directory, 'drive')); fs.writeFileSync(path.join(director
 state.driveFiles.push({ id: fileId, storedName: fileId, originalName: 'Polynomial-0.3.8-mac-x64.dmg', scope: 'public', size: bytes.length, ownerId: state.users[0].id });
 require('../../lib/resources').publish(state, { fileId, title: '测试安装包', category: 'client', version: '0.3.8', platform: 'mac', sha256: crypto.createHash('sha256').update(bytes).digest('hex') }, state.users[0].id);
 store.save(state); store.getDatabase().close();
-const child = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '../..'), env: { ...process.env, HOST: '127.0.0.1', PORT: '3190', DEEPSEEK_API_KEY: '' }, stdio: 'inherit' });
+const child = spawn(process.execPath, ['--require', path.join(__dirname,'provider-stub.cjs'), 'server.js'], { cwd: path.join(__dirname, '../..'), env: { ...process.env, HOST: '127.0.0.1', PORT: '3190', DEEPSEEK_API_KEY: 'fixture-key-not-a-real-secret' }, stdio: 'inherit' });
 let stopping = false;
 async function stop() { if (stopping) return; stopping = true; child.kill('SIGTERM'); }
 process.on('SIGTERM', stop); process.on('SIGINT', stop);

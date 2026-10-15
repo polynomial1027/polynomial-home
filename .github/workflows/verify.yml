@@ -19,6 +19,13 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - run: node scripts/button-audit-report.js
       - uses: actions/upload-artifact@v4
-        if: failure()
-        with: {name: browser-test-report, path: 'playwright-report/', retention-days: 7}
+        if: always()
+        with:
+          name: browser-test-report
+          path: |
+            playwright-report/
+            test-results/**/button-actions.json
+            docs/BUTTON-REVIEW-0.3.13.md
+          retention-days: 7
