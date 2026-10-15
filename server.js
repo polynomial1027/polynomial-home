@@ -1323,7 +1323,7 @@ server.on('upgrade', async (req, socket, head) => {
       return goWss.handleUpgrade(req, socket, head, ws => goWss.emit('connection', ws, req));
     }
     if (pathname === '/chat-socket') {
-      if(req.headers.origin && req.headers.origin !== `${req.socket.encrypted ? 'https' : String(req.headers['x-forwarded-proto'] || 'http').split(',')[0]}://${req.headers.host}`)return socket.destroy();
+      if(req.headers.origin){let sameOrigin=false;try{const origin=new URL(req.headers.origin);sameOrigin=['http:','https:'].includes(origin.protocol)&&origin.host===req.headers.host;}catch{}if(!sameOrigin)return socket.destroy();}
       if (!user || !allowed(user, 'accessChat')) return socket.destroy();
       return wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
     }
