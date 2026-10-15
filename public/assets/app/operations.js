@@ -87,6 +87,8 @@
     } catch (error) { $('#securityNotice').textContent = error.message; }
     finally { button.disabled = false; }
   };
-  $('#downloadRecoveryCodes').onclick = () => { const text = $('#mfaRecoveryCodes').textContent; if (!text) return; const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = 'Polynomial-recovery-codes.txt'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000); };
+  const nativeClient = /PolynomialClient\//.test(navigator.userAgent);
+  if (nativeClient) $('#downloadRecoveryCodes').textContent = '复制恢复码';
+  $('#downloadRecoveryCodes').onclick = async () => { const text = $('#mfaRecoveryCodes').textContent; if (!text) return; if (nativeClient) { try { await navigator.clipboard.writeText(text); $('#securityNotice').textContent = '恢复码已复制，请保存到你保管的位置。'; } catch { const selection = getSelection(), range = document.createRange(); range.selectNodeContents($('#mfaRecoveryCodes')); selection.removeAllRanges(); selection.addRange(range); $('#securityNotice').textContent = '已选中恢复码，请使用系统复制功能保存。'; } return; } const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = 'Polynomial-recovery-codes.txt'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000); };
   $('#closeRecoveryCodes').onclick = () => { $('#mfaRecoveryCodes').textContent = ''; $('#mfaRecoveryPanel').hidden = true; };
 })();

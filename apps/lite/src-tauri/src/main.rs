@@ -37,6 +37,8 @@ fn main() {
     .user_agent(&agent).disable_drag_drop_handler()
     .on_navigation(move |url| {
      let same=url.scheme()=="https"&&url.host_str()==Some("polynomial-server.tail722ac8.ts.net")&&url.port_or_known_default()==Some(443)&&url.username().is_empty()&&url.password().is_none();
+     // Public installers use the system browser's download manager on every OS.
+     if same && url.path().starts_with("/api/downloads/") && url.path().ends_with("/content") { let _=handle.opener().open_url(url.to_string(),None::<&str>); return false; }
      if !same && ["https","mailto"].contains(&url.scheme()) { let _=handle.opener().open_url(url.to_string(),None::<&str>); }
      same
     }).build()?;
