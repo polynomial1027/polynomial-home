@@ -14,7 +14,7 @@ jobs:
         with: {node-version: '24', cache: npm}
       - run: npm ci && npm run check && npm test
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo generate-lockfile --manifest-path apps/lite/src-tauri/Cargo.toml
+      - run: cargo fetch --locked --manifest-path apps/lite/src-tauri/Cargo.toml
       - uses: actions/upload-artifact@v4
         with: {name: lite-cargo-lock, path: apps/lite/src-tauri/Cargo.lock}
   desktop:

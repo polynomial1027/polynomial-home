@@ -26,3 +26,25 @@ test('due reminders send once per device and skip paused, completed and other us
   assert.deepEqual(delivered.map(row => row.payload.itemId), ['one', 'other']);
   assert.deepEqual(delivered.map(row => row.endpoint), [a.endpoint, b.endpoint]);
 });
+
+test('push failures back off and recent missed reminders catch up after restart', async () => {
+  const now = Date.now(), dueAt = new Date(now - 3600000).toISOString();
+  const state = { users: [{ id: 'alice', active: true }], plannerItems: [{ id: 'missed', userId: 'alice', title: 'Missed task', dueAt }], pushSubscriptions: [{ ...a, userId: 'alice' }], reminderDeliveries: [] };
+  let calls = 0;
+  const send = async () => { calls++; if (calls === 1) throw new Error('temporary outage'); };
+  assert.equal(await deliverDue({ state, save: () => {}, send, now }), 0);
+  assert.equal(state.reminderDeliveries[0].status, 'failed');
+  await deliverDue({ state, save: () => {}, send, now: now + 10000 }); assert.equal(calls, 1);
+  assert.equal(await deliverDue({ state, save: () => {}, send, now: now + 120000 }), 1);
+  assert.equal(state.reminderDeliveries[0].status, 'sent');
+  await deliverDue({ state, save: () => {}, send, now: now + 130000 }); assert.equal(calls, 2);
+});
+
+test('new subscriptions do not get old reminders and expired endpoints are removed', async () => {
+  const now = Date.now(), dueAt = new Date(now - 1000).toISOString();
+  const state = { users: [{ id: 'alice', active: true }], plannerItems: [{ id: 'task', userId: 'alice', title: 'Task', dueAt }], pushSubscriptions: [{ ...a, userId: 'alice', createdAt: new Date(now).toISOString() }], reminderDeliveries: [] };
+  let calls = 0; const send = async () => { calls++; const error = new Error('Gone'); error.statusCode = 410; throw error; };
+  await deliverDue({ state, save: () => {}, send, now }); assert.equal(calls, 0);
+  state.pushSubscriptions[0].createdAt = new Date(now - 10000).toISOString();
+  await deliverDue({ state, save: () => {}, send, now }); assert.equal(calls, 1); assert.equal(state.pushSubscriptions.length, 0);
+});

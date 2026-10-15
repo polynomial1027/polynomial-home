@@ -130,7 +130,14 @@ const defaultLexicon = loadDefaultLexicon();
 
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.webmanifest': 'application/manifest+json', '.ttf': 'font/ttf' };
 const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
-const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(v => v.trim().split('=').map(decodeURIComponent)));
+const cookies = req => {
+  const result = Object.create(null);
+  for (const part of String(req.headers.cookie || '').slice(0, 16384).split(';')) {
+    const index = part.indexOf('='); if (index < 0) continue;
+    try { result[decodeURIComponent(part.slice(0, index).trim())] = decodeURIComponent(part.slice(index + 1)); } catch {}
+  }
+  return result;
+};
 const currentUser = req => {
   const token = cookies(req).session;
   const session = state.sessions.find(s => s.token === token && new Date(s.expiresAt) > new Date());
@@ -256,6 +263,8 @@ const body = req => new Promise((resolve, reject) => {
     raw += chunk;
     if (Buffer.byteLength(raw) > maxBodyBytes) { tooLarge = true; raw = ''; reject(new Error('请求超过后台设置的存储上限')); }
   });
+  req.on('aborted', () => reject(new Error('请求已中断')));
+  req.on('error', reject);
   req.on('end', () => { if (tooLarge) return; try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('JSON 格式错误')); } });
 });
 const requireUser = (req, res, role) => {
@@ -1227,15 +1236,15 @@ const backups = new BackupService({ dataDir, database: getDatabase(), beforeSnap
 const scheduler = new JobScheduler({ state, save, model: assistantModel, audit: appendAudit, handlers: {
   health: { ready: () => true, run: async () => { security.pruneSensitiveRecords(state); const report = generateReport(state, save, new Date(), true); return { summary: report.notes }; } },
   backup: { ready: () => true, run: async () => { const result = await backups.create({ source: 'auto', retention: state.settings.backupRetention }); return { summary: `备份已恢复验证，${result.fileCount} 个文件` }; } },
-  review: { ready: () => Boolean(assistantKey && state.settings.assistantEnabled && state.users.some(user => user.active && user.role === 'admin')), run: async () => performMaintenanceReview(state.users.find(user => user.active && user.role === 'admin'), 'auto') }
+  review: { ready: () => Boolean(assistantKey && state.settings.assistantEnabled && state.users.some(user => user.active && user.role === 'admin')), run: async ({ manual }) => performMaintenanceReview(state.users.find(user => user.active && user.role === 'admin'), manual ? 'manual' : 'auto') }
 } });
 const operationsApi = createOperationsApi({ state, save, json, body, requireUser, cookies, verifyPassword, hashPassword, appendAudit, scheduler, backups, closeSession: session => {
   closeNotebookSockets(session.userId, session.token);
   for (const hub of [wss, goWss]) hub.clients.forEach(client => { if (client.sessionToken === session.token) client.close(4003, 'session revoked'); });
 } });
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !url.pathname.startsWith('/api/admin/operations')) { activeMutations.add(req); const done = () => activeMutations.delete(req); res.once('finish', done); res.once('close', done); }
+  let url; try { url = new URL(req.url, 'http://localhost'); } catch { return json(res, 400, { error: '请求地址无效' }); }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !url.pathname.startsWith('/api/admin/operations')) activeMutations.add(req);
   const actor = currentUser(req);
   if (actor) {
     touchPresence(actor, req);
@@ -1250,7 +1259,7 @@ const server = http.createServer(async (req, res) => {
     console.error(error);
     const status = error?.code === 'FORBIDDEN' ? 403 : error?.code === 'NOT_FOUND' ? 404 : ['ENGINE_UNAVAILABLE', 'GO_DISABLED'].includes(error?.code) ? 503 : error?.code === 'INVITE_LIMIT' ? 429 : 400;
     if (!res.headersSent) json(res, status, { error: error.message || '请求失败', code: error.code || 'REQUEST_FAILED' });
-  }
+  } finally { activeMutations.delete(req); }
 });
 
 const wss = new WebSocketServer({ noServer: true });

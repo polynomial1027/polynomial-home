@@ -93,6 +93,18 @@ test('password edit invalidates old login, persists across restart, and member A
     assert.equal((await call(`/api/workspace/planner/${planId}`, 'DELETE', undefined, logged.cookie)).status, 200);
     const freshAdmin = await call('/api/login', 'POST', { username: 'test-admin', password: 'test-admin-password' });
     assert.equal((await call('/api/admin/assistant/records', 'GET', undefined, freshAdmin.cookie)).status, 200);
+    assert.equal((await call('/api/admin/operations', 'GET', undefined, logged.cookie)).status, 403);
+    const operations = await call('/api/admin/operations', 'GET', undefined, freshAdmin.cookie);
+    assert.equal(operations.body.storage, 'SQLite · 事务与 WAL');
+    const backup = await call('/api/admin/operations/backups', 'POST', {}, freshAdmin.cookie);
+    assert.equal(backup.status, 201); assert.ok(backup.body.backup.verifiedAt);
+    const backupId = backup.body.backup.id;
+    assert.equal((await call(`/api/admin/operations/backups/${backupId}/metadata`, 'GET', undefined, logged.cookie)).status, 403);
+    assert.equal((await call(`/api/admin/operations/backups/${backupId}/metadata`, 'GET', undefined, freshAdmin.cookie)).body.sha256, backup.body.backup.sha256);
+    const devices = await call('/api/account/sessions', 'GET', undefined, logged.cookie);
+    assert.ok(devices.body.sessions.every(row => !row.token && row.id.length === 64));
+    const badOrigin = await fetch(`http://127.0.0.1:${port}/api/admin/operations/settings`, { method: 'PATCH', headers: { cookie: freshAdmin.cookie, origin: 'https://untrusted.example', 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(badOrigin.status, 403);
     const records = await call(`/api/admin/assistant/records?userId=${member.body.user.id}`, 'GET', undefined, freshAdmin.cookie);
     assert.equal(records.body.total, 1);
     assert.equal(records.body.records[0].detail, undefined);

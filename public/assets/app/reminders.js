@@ -6,7 +6,7 @@
   const desktop = /PolynomialClient\/[\w.-]+ \((mac|windows|linux);/.test(navigator.userAgent);
   const tauri = window.__TAURI__?.notification;
   const version = navigator.userAgent.match(/PolynomialClient\/([\w.-]+)/)?.[1]?.split('.').map(Number);
-  const nativeDesktop = desktop && version && (version[1] > 3 || version[1] === 3 && version[2] >= 8) && window.__TAURI__?.core?.invoke;
+  const nativeDesktop = desktop && version && (version[0] > 0 || version[1] > 3 || version[1] === 3 && version[2] >= 8) && window.__TAURI__?.core?.invoke;
   async function desktopSync(enabled) { if (nativeDesktop) await window.__TAURI__.core.invoke('sync_reminders', { userId, enabled, items: currentTasks().map(item => ({ id: item.id, title: item.title, dueEpochMs: Date.parse(item.dueAt) })) }); }
   const desktopMessage = nativeDesktop ? '桌面提醒已开启；关闭窗口后会收起到托盘继续提醒。选择“退出”后停止。' : '桌面通知已开启；请保持客户端运行，升级 0.3.8 可使用托盘提醒。';
   let userId = null, items = [], webReady = null, pushPublicKey = null;

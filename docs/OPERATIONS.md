@@ -38,3 +38,9 @@ git switch codex/before-v038-improvements
 Web Push 有限重试并补发 24 小时内的事项；推送成功表示通知服务接受，不能证明用户已看到。新订阅不补发订阅前的事项。Android 提醒受系统省电限制。桌面 0.3.8 在原生线程维护已同步任务，关闭窗口时托盘继续运行；明确退出/关机后不运行，重启客户端补发 24 小时内未发出的提醒。账号退出会清除本地提醒。
 
 离线日程为用户选择的设备副本，保存 30 天内的最后快照，不包含聊天、管理员报告或密钥。只能查看，重新联网后以服务器为准。多设备日程编辑通过修改时间检查冲突。iOS 原生签名安装需 Apple 开发者账号，当前仍提供 Safari 主屏幕版本。
+
+## 发布检查与自动重启
+
+生产使用用户级 systemd 服务 polynomial-home.service，配置见 deploy/polynomial-home-user.service；用户启用 linger 后，SSH 断开和重启后服务仍可启动。进程异常退出会有限重启，启动日志使用 journalctl --user -u polynomial-home.service。
+
+发布运行 bash scripts/deploy-server.sh codex/ai-framework /absolute/installers-directory。脚本先在临时源码目录安装、检查和测试，再停服务、备份原数据、更新代码、导入安装包、迁移和恢复验证备份，最后启动并检查公告、版本、下载哈希与数据库。失败时切回原代码，并在需要时导出兼容 JSON；发布前的数据归档另行保留。回退后应检查服务和实际账号。浏览器交互检查在 GitHub Actions 中执行。

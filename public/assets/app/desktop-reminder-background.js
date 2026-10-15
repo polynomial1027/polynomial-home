@@ -12,7 +12,7 @@
       const { user, planner } = await response.json();
       if (localStorage.getItem(`reminders:${user.id}`) !== 'on') return;
       const version = navigator.userAgent.match(/PolynomialClient\/([\w.-]+)/)?.[1]?.split('.').map(Number);
-      if (version && (version[1] > 3 || version[1] === 3 && version[2] >= 8) && window.__TAURI__?.core) { await window.__TAURI__.core.invoke('sync_reminders', { userId: user.id, enabled: true, items: planner.filter(item => item.dueAt && !item.done && item.scheduled !== false).map(item => ({ id: item.id, title: item.title, dueEpochMs: Date.parse(item.dueAt) })) }); return; }
+      if (version && (version[0] > 0 || version[1] > 3 || version[1] === 3 && version[2] >= 8) && window.__TAURI__?.core) { await window.__TAURI__.core.invoke('sync_reminders', { userId: user.id, enabled: true, items: planner.filter(item => item.dueAt && !item.done && item.scheduled !== false).map(item => ({ id: item.id, title: item.title, dueEpochMs: Date.parse(item.dueAt) })) }); return; }
       const now = Date.now();
       for (const item of planner) {
         const due = Date.parse(item.dueAt), sentKey = `reminder-sent:${user.id}:${item.id}:${item.dueAt}`;
