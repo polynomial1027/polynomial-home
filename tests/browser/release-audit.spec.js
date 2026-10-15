@@ -15,6 +15,7 @@ test('release sweep checks every page, local destinations, assets, controls and 
   if(route.startsWith('/app.html'))await expect(page.locator('#userName')).toHaveText('Polynomial');
   if(route==='/chat.html')await expect(page.locator('#messageInput')).toBeEnabled();
   if(route==='/learning.html?course=python-foundations-v1')await expect(page.locator('#lessonStage')).toBeVisible();
+  if(route==='/download.html')await page.locator('#resourcePlatform').selectOption('mac');
   const ready={'/admin.html':['#userList','fixtureadmin'],'/drive.html':['#driveFiles','这里还没有文件'],'/download.html':['#resourceList','测试安装包'],'/games/go.html':['#goPlayer','Polynomial'],'/workspace.html':['#workspaceName','Polynomial'],'/ai-records.html':['#recordWindow','2026']};
   if(ready[route]&&route!=='/drive.html'&&route!=='/workspace.html'&&route!=='/ai-records.html')await expect(page.locator(ready[route][0])).toContainText(ready[route][1]);
   if(route==='/games/match3.html')await expect(page.locator('#gameBoard .gem')).toHaveCount(64);
@@ -52,4 +53,10 @@ test('signed-out login, recovery, offline and legacy routes keep working without
  }
  await page.goto('/login.html');await expect(page.locator('h1')).toHaveText('登录账号');await page.locator('a[href="/recover-password.html"]').click();await expect(page.locator('#recoveryForm')).toBeVisible();
  fs.writeFileSync(info.outputPath('public-inventory.json'),JSON.stringify(inventory,null,2));
+});
+test('installer HEAD reports the same bytes and the optional verified mirror stays separate',async({page})=>{
+ const response=await page.request.get('/api/downloads'),data=await response.json(),item=data.resources.find(r=>r.downloadUrl);const head=await page.request.head(item.downloadUrl);expect(head.status()).toBe(200);expect(Number(head.headers()['content-length'])).toBe(item.size);expect((await head.body()).length).toBe(0);
+ const mirror='https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.12/Polynomial-0.3.12-android-universal.apk';
+ await page.route('**/api/downloads',async route=>{const original=await route.fetch(),body=await original.json();body.resources.forEach(row=>{row.mirrorUrl=mirror;});await route.fulfill({response:original,json:body});});
+ await page.goto('/download.html?platform=mac');await expect(page.getByRole('link',{name:'GitHub 备用下载 ↗'}).first()).toHaveAttribute('href',mirror);await expect(page.locator('[data-download-resource]').first()).toBeEnabled();
 });

@@ -455,7 +455,7 @@ async function api(req, res, url) {
     try { const payload = await body(req), file = state.driveFiles.find(item => item.id === payload.fileId && item.scope === 'public'); if (!file) throw new Error('文件不存在'); payload.sha256 = await require('./lib/backups').digest(path.join(driveDir, file.storedName)); const item = resources.publish(state, payload, admin.id); save(state); return json(res, 201, { resource: item }); } catch (error) { return json(res, 400, { error: error.message }); }
   }
   const resourceContent = url.pathname.match(/^\/api\/downloads\/([a-f0-9-]+)\/content$/);
-  if (resourceContent && req.method === 'GET') {
+  if (resourceContent && ['GET','HEAD'].includes(req.method)) {
     const item = (state.resourceDownloads || []).find(entry => entry.id === resourceContent[1]);
     if(accountPolicy.isGuest(actor)&&item?.category!=='client')return json(res,403,{error:'访客不能访问共享资源'});
     if (item?.category === 'client' && state.clientReleases?.find(release => release.version === item.version)?.status === 'withdrawn') return json(res, 410, { error: '此客户端版本已停止分发，请选择推荐版本' });
@@ -463,7 +463,7 @@ async function api(req, res, url) {
     const file = item && state.driveFiles.find(entry => entry.id === item.fileId && entry.scope === 'public');
     if (!file || !/^[a-f0-9-]+$/.test(file.storedName)) return json(res, 404, { error: '资源不存在或已下架' });
     const target = path.join(driveDir, file.storedName); if (!fs.existsSync(target)) return json(res, 404, { error: '资源文件不存在' });
-    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': fs.statSync(target).size, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); return fs.createReadStream(target).pipe(res);
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': fs.statSync(target).size, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); if(req.method==='HEAD')return res.end(); const stream=fs.createReadStream(target);stream.on('error',()=>res.destroy());return stream.pipe(res);
   }
   const resourceMatch = url.pathname.match(/^\/api\/downloads\/([a-f0-9-]+)$/);
   if (resourceMatch && req.method === 'DELETE') { if (!requireUser(req, res, 'admin')) return; state.resourceDownloads = (state.resourceDownloads || []).filter(item => item.id !== resourceMatch[1]); save(state); return json(res, 200, { ok: true }); }
@@ -1256,7 +1256,7 @@ function staticFile(req, res, url) {
     return res.end();
   }
   if (clean === '/ai-records.html' && currentUser(req)?.role !== 'admin') { res.writeHead(302, { Location: currentUser(req) ? '/workspace.html' : '/login.html?next=%2Fai-records.html', 'Cache-Control': 'no-store' }); return res.end(); }
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|ai-records|drive|learning|python|workspace|app|download|offline)\.html$/.test(clean) || ['/app.webmanifest', '/app-sw.js'].includes(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|ai-records|drive|learning|python|workspace|app|download|offline|privacy)\.html$/.test(clean) || ['/app.webmanifest', '/app-sw.js'].includes(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }

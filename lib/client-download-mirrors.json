@@ -1,0 +1,30 @@
+{
+  "7800388538ce6646bdf3bcd162a9a98697a22c28f6ada1156b103a08c13185af": {
+    "version": "0.3.8",
+    "url": "https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.8/Polynomial-0.3.8-linux-arm64.deb"
+  },
+  "9c9c83e721a58ae2c29623f4b90178a44602c9d92e20cd78e4052da4b8c956c0": {
+    "version": "0.3.8",
+    "url": "https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.8/Polynomial-0.3.8-linux-x64.deb"
+  },
+  "5eb8821f3a8c40219287e70b7922ae735f2680b01091d4f24a48c940206602e2": {
+    "version": "0.3.8",
+    "url": "https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.8/Polynomial-0.3.8-mac-arm64.dmg"
+  },
+  "9152e8f4ed1570b01dccb5a9d73fd53613fdeedb9d00274e3740671030d85b7a": {
+    "version": "0.3.8",
+    "url": "https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.8/Polynomial-0.3.8-mac-x64.dmg"
+  },
+  "bd8fc3e822be3ee4412f70daf43781a8dadf85e887af1d51a212ba6c5bda9458": {
+    "version": "0.3.8",
+    "url": "https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.8/Polynomial-0.3.8-win-arm64.exe"
+  },
+  "454d789145ae6f3b69df9270dc4a4c165b0b6f4a5a0c6654ca0326900759b7ed": {
+    "version": "0.3.8",
+    "url": "https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.8/Polynomial-0.3.8-win-x64.exe"
+  },
+  "c1d792199e9b5f63d584aa761f0052e40a9fded9a6eb17b01840dd676f16436b": {
+    "version": "0.3.12",
+    "url": "https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.12/Polynomial-0.3.12-android-universal.apk"
+  }
+}
