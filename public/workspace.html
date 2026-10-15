@@ -9,7 +9,7 @@
   <header class="nav"><div class="wrap nav-inner"><a class="brand" href="/">POLYNOMIAL <span>SERVER</span></a><nav class="nav-links" id="navLinks"></nav></div></header>
   <main class="workspace-shell" id="workspace">
     <section class="workspace-hero">
-      <div><div class="eyebrow">MY SPACE / CONTROL CENTER</div><h1><span id="workspaceGreeting">你好</span>，<span id="workspaceName">朋友</span><span class="workspace-dot">.</span></h1><p>你的日程、智能助手和服务器状态，都在这里。</p></div>
+      <div><div class="eyebrow">MY SPACE / CONTROL CENTER</div><h1><span id="workspaceGreeting">你好</span>，<span id="workspaceName">朋友</span><span class="workspace-dot">.</span></h1><p>日程、助手与常用工具。</p></div>
       <div class="workspace-date" id="workspaceDate"></div>
     </section>
     <nav class="workspace-shortcuts" aria-label="个人空间分区"><a href="#assistantCard">AI 对话 <span>↗</span></a><a href="#plannerCard">计划提醒 <span>↗</span></a><a href="#calendarCard">日历 <span>↗</span></a><button type="button" id="openDailyBrief" class="brief-shortcut">每日回顾 ↗</button><a href="#toolsCard">常用工具 <span>↗</span></a><a href="#adminWorkspace" id="adminShortcut" hidden>AI 管理与巡检 <span>↗</span></a></nav>
@@ -23,17 +23,17 @@
         <div id="assistantQueue" class="assistant-queue"></div>
         <form id="assistantForm" class="assistant-form"><textarea id="assistantMessage" rows="2" maxlength="2000" placeholder="提出一个问题，或请我帮你整理计划…"></textarea><button type="submit">发送 ↗</button></form>
         <label class="send-mode" id="sendModeLabel"><input type="checkbox" id="sendOffPeak" checked><span>高峰期先排队，进入空闲时段后自动发送；取消勾选可立即发送。</span></label>
-        <p class="workspace-note">告诉助手“明天 9 点提醒我…”可自动加入计划与日历。AI 不会直接执行服务器命令或读取邮箱。每次调用均计入你的额度；对话与用量会保存，站点管理员可查看以管理使用额度。</p>
+        <p class="workspace-note">AI 可添加站内日程；邮箱尚未接入。<a href="/privacy.html">隐私与数据说明</a></p>
       </section>
       <section class="workspace-card planner-card" id="plannerCard">
         <div class="card-heading"><div><span class="workspace-icon">▦</span><div><small>YOUR DAY</small><h2>计划与提醒</h2></div></div><span class="status-pill quiet" id="plannerCount">0 项</span></div><p class="workspace-note"><a href="/app.html#calendar">开启或管理设备日程提醒 ↗</a></p>
-        <p class="card-intro">记录待办与时间；到期事项会在打开个人空间时提醒。</p>
+        <p class="card-intro">记录待办与时间。</p>
         <form id="plannerForm" class="planner-form"><input id="plannerTitle" maxlength="120" placeholder="今天要完成什么？" required><input id="plannerDue" type="datetime-local" aria-label="提醒时间"><button type="submit">添加</button></form>
         <div id="plannerList" class="planner-list"></div>
       </section>
       <section class="workspace-card calendar-card" id="calendarCard">
         <div class="card-heading"><div><span class="workspace-icon">◫</span><div><small>YOUR CALENDAR</small><h2>日程日历</h2></div></div><div class="calendar-controls"><button type="button" id="calendarPrev" aria-label="上个月">‹</button><strong id="calendarMonth"></strong><button type="button" id="calendarNext" aria-label="下个月">›</button></div></div>
-        <p class="card-intro">手动添加和 AI 安排的事项都会显示在这里。点击日期查看当天计划。</p>
+        <p class="card-intro">点击日期查看当天安排。</p>
         <div class="calendar-weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
         <div id="calendarGrid" class="calendar-grid" role="grid" aria-label="日程日历"></div><div id="calendarDetails" class="calendar-details"></div>
       </section>
@@ -42,9 +42,9 @@
         <div class="service-links"><a href="/drive.html"><strong>私人文件</strong><span>整理和分享网盘内容 ↗</span></a><a href="/chat.html"><strong>团队聊天</strong><span>查看消息与协作 ↗</span></a><a href="/learning.html"><strong>网络学习</strong><span>继续课程进度 ↗</span></a></div>
       </section>
       <section class="workspace-card integrations-card">
-        <div class="card-heading"><div><span class="workspace-icon">＋</span><div><small>COMING NEXT</small><h2>待接入的能力</h2></div></div></div>
-        <div class="integration-row"><strong>邮箱助手</strong><span>待授权接入</span></div><div class="integration-row"><strong>外部日历</strong><span>待授权接入</span></div><div class="integration-row"><strong>扩展功能接口</strong><span>预留中</span></div>
-        <p class="workspace-note">站内日程已可使用；外部邮箱与日历尚未连接。邮件回复计划只记录为待办，不会自动读取或发送邮件。</p>
+        <div class="card-heading"><div><span class="workspace-icon">＋</span><div><small>COMING NEXT</small><h2>服务状态</h2></div></div></div>
+        <div class="integration-row"><strong>邮箱助手</strong><span>未连接</span></div><div class="integration-row"><strong>外部日历</strong><span>未连接</span></div><div class="integration-row"><strong>扩展服务</strong><span>未开放</span></div>
+        <p class="workspace-note">邮箱与外部日历未连接；邮件相关安排仅保存为待办。</p>
       </section>
     </div>
     <section class="workspace-card admin-workspace" id="adminWorkspace" hidden>

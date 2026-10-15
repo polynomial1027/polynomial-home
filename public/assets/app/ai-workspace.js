@@ -27,7 +27,7 @@ window.createAiWorkspace = ({ getData, isOffline, isSending, api, refresh, notic
   function render() {
     const data = getData(); if (!data?.ai) { for (const id of ['newAiSession', 'editAiSession', 'openAiTools']) $(`#${id}`).disabled = true; return; }
     syncDraft(); renderList(); renderAttachment(); const row = active();
-    $('#aiSessionTitle').textContent = row?.title || 'Polynomial 助手'; $('#aiSessionTool').textContent = `${row?.toolTitle || '通用助手'}${row?.archived ? ' · 已归档，请恢复后继续' : row?.busy || isSending() ? ' · 正在回复，请稍候' : ' · 独立上下文'}`;
+    $('#aiSessionTitle').textContent = row?.title || 'Polynomial 助手'; $('#aiSessionTool').textContent = `${row?.toolTitle || '通用助手'}${row?.archived ? ' · 已归档，请恢复后继续' : row?.busy || isSending() ? ' · 正在回复，请稍候' : ''}`;
     const disabled = isOffline() || isSending() || transitioning || mutating; $('#newAiSession').disabled = disabled || !data.assistant.allowed; $('#openAiTools').disabled = disabled || !data.assistant.allowed; $('#editAiSession').disabled = disabled || !row || row.busy;
     $('#aiFileInput').disabled = disabled || row?.archived || row?.busy; $('#messageCount').textContent = `${$('#appChatMessage').value.length} / 4000`;
   }

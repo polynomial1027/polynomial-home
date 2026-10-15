@@ -39,10 +39,10 @@
     ['accessChat', 'chat', '团队聊天', '与成员保持联系', '/chat.html'],
     ['accessLearning', 'book', '网络学习', '课程、实验与学习进度', '/learning.html'],
     ['accessPlanner', 'calendar', '计划与日历', '安排每一天，按时提醒', '#calendar'],
-    ['accessGames', 'game', '小游戏', '围棋与休闲空间', '/games.html'],
-    [null, 'grid', '原神计算器', '独立计算工具', '/genshin-calculator/'],
+    ['accessGames', 'game', '小游戏', '围棋与休闲游戏', '/games.html'],
+    [null, 'grid', '原神计算器', '角色与伤害计算', '/genshin-calculator/'],
     [null, 'download', '资源下载', '安装包、版本与共享资料', '/download.html'],
-    [null, 'home', '高级设置与报告', '完整参数与历史报告', '/workspace.html']
+    [null, 'home', '详细设置', '助手设置与历史报告', '/workspace.html']
   ];
   const permitted = key => !key || data?.user.role === 'admin' || data?.user.permissions?.[key] === true;
   const tools = () => [...toolDefinitions.filter(([key]) => permitted(key)), ...(data?.user.role === 'admin' ? [[null, 'shield', '服务器管理', '账号、巡检与用量', '#control']] : [])].map(entry=>{if(data?.user.role!=='guest')return entry;if(entry[4]==='/drive.html')return [...entry.slice(0,2),'私人小云盘','仅本人使用，不对外分享',entry[4]];if(entry[4]==='/games.html')return [...entry.slice(0,2),'休闲小游戏','独立体验，不开放围棋',entry[4]];return entry;});
@@ -86,7 +86,7 @@
   }
   const empty = (symbol, title, description) => `<div class="empty-state"><span data-icon="${symbol}">${icon(symbol)}</span><h3>${esc(title)}</h3><p>${esc(description)}</p></div>`;
   function tasks(items) {
-    if (!items.length) return empty('calendar', '留一点空间给自己', '目前没有匹配的日程，可以添加一件事。');
+    if (!items.length) return empty('calendar', '暂无日程', '添加日程，或调整筛选条件。');
     return items.map(item => {
       const overdue = item.dueAt && Date.parse(item.dueAt) < Date.now() && !item.done && item.scheduled !== false;
       return `<div class="task-row ${item.done ? 'done' : ''} ${item.scheduled === false ? 'paused' : ''} ${overdue ? 'overdue' : ''}"><input type="checkbox" data-task-toggle="${esc(item.id)}" aria-label="${esc(item.done ? '重新打开' : '完成')} ${esc(item.title)}" ${item.done ? 'checked' : ''} ${!permitted('accessPlanner') ? 'disabled' : ''}><button type="button" class="task-title" data-edit-task="${esc(item.id)}" ${!permitted('accessPlanner') ? 'disabled' : ''}><strong>${esc(item.title)}</strong><small>${item.dueAt ? time(item.dueAt) : '未设置时间'}${item.scheduled === false ? ' · 已暂停' : overdue ? ' · 已到期' : ''}${item.source === 'assistant' ? ' <span class="task-source">· AI 安排</span>' : ''}</small></button>${permitted('accessPlanner') ? `<div class="task-actions"><button type="button" data-pause-task="${esc(item.id)}" aria-label="${item.scheduled === false ? '恢复' : '暂停'} ${esc(item.title)}">${icon(item.scheduled === false ? 'play' : 'pause')}</button><button type="button" data-delete-task="${esc(item.id)}" aria-label="删除 ${esc(item.title)}">${icon('trash')}</button></div>` : ''}</div>`;
@@ -138,7 +138,7 @@
     aiWorkspace.render();
     const ready = data.assistant.allowed && data.assistant.enabled && data.assistant.configured;
     $('#assistantStatus').textContent = ready ? (data.assistant.pricing.peak ? '高峰时段 · 可排队发送' : '低峰时段 · 可使用') : !data.assistant.allowed ? '未获授权' : '暂未开放';
-    $('#assistantDescription').textContent = ready ? '与你的计划和日历相连，继续一个想法。' : '管理员尚未开放 AI 服务；日程和其他工具可以继续使用。';
+    $('#assistantDescription').textContent = ready ? '对话、资料整理与日程安排。' : 'AI 服务暂不可用。';
     const sessionReady = aiWorkspace.canSend();
     $('#appChatMessage').disabled = !ready || !sessionReady; $('#sendChat').disabled = !ready || !sessionReady || busy;
     $('#sendChat').querySelector('span').textContent = busy ? '处理中' : '发送';
