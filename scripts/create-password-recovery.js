@@ -13,14 +13,17 @@ if (!username) {
   process.exit(1);
 }
 
-const storeFile = path.join(dataDir, 'store.json');
+const storeFile = path.join(dataDir, fs.existsSync(path.join(dataDir, 'store.sqlite')) ? 'store.sqlite' : 'store.json');
 if (!fs.existsSync(storeFile)) {
   console.error(`找不到账号数据：${storeFile}`);
   console.error('生产服务器请先设置 POLYNOMIAL_DATA_DIR，例如 /var/lib/polynomial-server。');
   process.exit(1);
 }
 
-const state = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+const { StateDatabase } = require('../lib/database');
+const db = storeFile.endsWith('.sqlite') ? new StateDatabase(dataDir) : null;
+const state = db ? db.read() : JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+db?.close();
 const user = (state.users || []).find(item => item.username.toLowerCase() === username.toLowerCase());
 if (!user || user.role !== 'admin' || !user.active) {
   console.error('没有找到已启用的管理员账号。');

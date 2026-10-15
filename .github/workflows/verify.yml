@@ -1,0 +1,19 @@
+name: Verify server and application
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ai-framework]
+    paths: ['server.js', 'lib/**', 'public/**', 'scripts/**', 'tests/**', 'package*.json', '.github/workflows/verify.yml']
+  pull_request:
+    paths: ['server.js', 'lib/**', 'public/**', 'scripts/**', 'tests/**', 'package*.json', '.github/workflows/verify.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm}
+      - run: npm ci
+      - run: npm run check
+      - run: npm test

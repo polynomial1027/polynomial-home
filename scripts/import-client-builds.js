@@ -1,10 +1,11 @@
 // Offline deployment tool: stop the application before running this importer.
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const clientReleases=require('../lib/client-releases');
-const {dataDir,save}=require('../lib/store'),resources=require('../lib/resources');
+const {dataDir,save,load}=require('../lib/store'),resources=require('../lib/resources');
 if(process.env.POLYNOMIAL_OFFLINE_IMPORT!=='1')throw new Error('请停止服务并设置 POLYNOMIAL_OFFLINE_IMPORT=1 后导入，避免覆盖在线状态');
 const root=path.resolve(process.argv[2]||'');if(!process.argv[2]||!fs.statSync(root).isDirectory())throw new Error('需要安装包目录');
-const state=JSON.parse(fs.readFileSync(path.join(dataDir,'store.json'),'utf8'));
+require('../lib/service-lock').assertServiceStopped(dataDir);
+const state=load();
 const admin=state.users.find(user=>user.role==='admin'&&user.active);if(!admin)throw new Error('没有可用管理员');
 const dir=path.join(dataDir,'drive');fs.mkdirSync(dir,{recursive:true});
 function files(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?files(path.join(dir,entry.name)):[path.join(dir,entry.name)]);}

@@ -30,6 +30,7 @@
   const fullTime = value => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   const localInput = value => new Date(new Date(value).getTime() + 8 * 3600_000).toISOString().slice(0, 16);
   const storage = { get(key) { try { return localStorage.getItem(key); } catch { return null; } }, set(key, value) { try { localStorage.setItem(key, value); } catch {} } };
+  let offline = false;
   let data, admin, butler, busy = false, refreshing = false, activePage, editingTask = null, selected = day(new Date()), month = selected.slice(0, 7), filter = 'open', pendingMessage = '', noticeTimer, chatSignature = '', confirmation;
   const pageNames = { home: '总览', assistant: '智能助手', calendar: '计划与日历', tools: '常用工具', control: '服务器管理', account: '账号与偏好' };
   const toolDefinitions = [
@@ -45,9 +46,10 @@
   const tools = () => [...toolDefinitions.filter(([key]) => permitted(key)), ...(data?.user.role === 'admin' ? [[null, 'shield', '服务器管理', '账号、巡检与用量', '#control']] : [])];
   function notice(message, kind = 'success') { clearTimeout(noticeTimer); $('#appNotice').hidden = !message; $('#appNotice').textContent = message || ''; $('#appNotice').dataset.kind = kind; if (message && kind !== 'error') noticeTimer = setTimeout(() => { $('#appNotice').hidden = true; }, 5000); }
   async function api(url, options = {}) {
-    const response = await fetch(url, { ...options, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options.headers } });
+    if (offline && options.method && options.method !== 'GET') throw new Error('离线日程为只读，请连接服务器后修改');
+    let response; try { response = await fetch(url, { ...options, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options.headers } }); } catch (error) { error.network = true; throw error; }
     const result = await response.json();
-    if (!response.ok) { if (response.status === 401) location.href = '/login.html?next=%2Fapp.html'; throw new Error(result.error || '操作失败，请重试'); }
+    if (!response.ok) { if (response.status === 401) { window.PolynomialCalendarCache?.clear(); window.__TAURI__?.core?.invoke('clear_reminders').catch(() => {}); location.href = '/login.html?next=%2Fapp.html'; } throw new Error(result.error || '操作失败，请重试'); }
     return result;
   }
   const action = (fn, prevent = true) => async event => { if (prevent) event?.preventDefault(); try { await fn(event); } catch (error) { notice(error.message, 'error'); } };
@@ -118,6 +120,11 @@
     $('#nextTaskDate').textContent = upcoming ? `${day(upcoming.dueAt) === today ? '今天' : time(upcoming.dueAt).split(' ')[0]} · ${upcoming.source === 'assistant' ? 'AI 为你安排' : '你的个人计划'}` : '从一件小事开始，给想法一个时间。';
     const toolHtml = entry => { const [, symbol, title, description, href] = entry; return `<a class="tool-tile" href="${href}"><span data-icon="${symbol}">${icon(symbol)}</span><div><strong>${title}</strong><small>${description}</small></div><span class="tool-arrow">↗</span></a>`; };
     $('#quickTools').innerHTML = tools().slice(0, 4).map(toolHtml).join(''); $('#allTools').innerHTML = tools().map(toolHtml).join('');
+    const overdue = data.planner.filter(item => !item.done && item.scheduled !== false && item.dueAt && Date.parse(item.dueAt) < Date.now() && day(item.dueAt) !== today);
+    const failedQueue = data.assistant.queue.filter(item => item.status === 'failed');
+    const pendingActions = butler?.actions?.filter(item => item.status === 'pending') || [];
+    const attention = [overdue.length ? `<a href="#calendar">${overdue.length} 项逾期待办 ↗</a>` : '', failedQueue.length ? `<a href="#assistant">${failedQueue.length} 条 AI 消息发送失败 ↗</a>` : '', data.user.role === 'admin' && pendingActions.length ? `<a href="#control">${pendingActions.length} 项权限变更待确认 ↗</a>` : ''].filter(Boolean);
+    $('#homeAttention').hidden = !attention.length; $('#homeAttention').innerHTML = `<strong>需要你处理</strong><div class="row-actions">${attention.join('')}</div>`;
     const report = data.health?.[0]; $('#homeHealth').textContent = report ? `${report.day} · ${report.severity === 'warning' ? '有项目需要留意' : '基础报告已生成'}。${report.notes}` : '暂时没有检查报告，可到管理空间生成基础报告。';
   }
   function renderChat(forceScroll = false) {
@@ -147,27 +154,43 @@
     if (document.activeElement !== $('#appReviewFrequency')) $('#appReviewFrequency').value = settings.assistantReviewFrequency || 'off';
     const report = admin.reports?.[0];
     $('#healthSummary').innerHTML = report ? `<span class="health-badge ${report.severity === 'warning' ? 'warning' : ''}">${report.severity === 'warning' ? '需要留意' : '检查报告已生成'}</span><p class="muted">${esc(report.notes)}</p><div class="health-details"><div><small>站内登录成功 / 失败</small><strong>${report.loginSuccess} / ${report.loginFailed}</strong></div><div><small>数据盘剩余</small><strong>${report.disk ? `${report.disk.freeGB} / ${report.disk.totalGB} GB` : '暂不可读取'}</strong></div></div><p class="health-window">统计区间（北京时间）<br>${fullTime(report.windowStart)} — ${fullTime(report.windowEnd)}<br>报告生成于 ${fullTime(report.createdAt)}</p>` : empty('shield', '暂无报告', '点击刷新按钮生成只读基础报告。');
-    if (butler) $('#appButlerThread').innerHTML = butler.chats.map(item => `<div class="message user"><div class="message-body">${esc(item.message)}</div></div><div class="message"><div class="message-body">${esc(item.reply)}${item.link?.startsWith('/admin.html') ? `<a href="${esc(item.link)}">打开账号编辑 ↗</a>` : ''}${item.actionId ? '<a href="/workspace.html#adminWorkspace">核对并确认权限操作 ↗</a>' : ''}</div></div>`).join('') || empty('shield', '你的服务器管家', '问我登录情况，或打开某个用户的账号编辑页。');
+    if (butler) $('#appButlerThread').innerHTML = butler.chats.map(item => {
+      const proposal = butler.actions.find(action => action.id === item.actionId);
+      const action = proposal ? `<div class="butler-action"><strong>${esc(proposal.targetName)} · ${esc(proposal.label || proposal.permission)}：${proposal.before ? '开放' : '关闭'} → ${proposal.value ? '开放' : '关闭'}</strong>${proposal.status === 'pending' ? `<button class="secondary small" data-confirm-butler="${proposal.id}">核对并执行</button><button class="secondary small" data-cancel-butler="${proposal.id}">取消</button><small>有效至 ${fullTime(proposal.expiresAt)}</small>` : `<small>${({ confirmed: '已执行', cancelled: '已取消', expired: '已过期' })[proposal.status] || esc(proposal.status)}</small>`}</div>` : '';
+      const link = item.link && ['/admin.html','/ai-records.html','/drive.html'].some(path => item.link.split('?')[0].split('#')[0] === path) ? `<a href="${esc(item.link)}" class="text-link">打开相关页面 ↗</a>` : '';
+      return `<div class="message user"><div class="message-body">${esc(item.message)}</div></div><div class="message"><div class="message-body">${esc(item.reply)}${link}${action}</div></div>`;
+    }).join('') || empty('shield', '你的服务器管家', '问我登录情况、用量或服务器状态，也可以核对并执行权限变更。');
   }
   function render() {
+    document.querySelectorAll('[data-offline-disabled]').forEach(node => { node.disabled = node.dataset.offlineDisabled === 'true'; delete node.dataset.offlineDisabled; });
+    document.body.classList.toggle('offline-mode', offline);
     const user = data.user;
     $('#userName').textContent = user.displayName; $('#accountButton').textContent = user.displayName.slice(0, 1); $('#accountAvatar').textContent = user.displayName.slice(0, 1);
     $('#accountName').textContent = user.displayName; $('#accountRole').textContent = user.role === 'admin' ? `管理员 · @${user.username}` : `成员 · @${user.username}`; $('#serverAddress').textContent = location.origin;
     document.querySelectorAll('.admin-only').forEach(node => { node.hidden = user.role !== 'admin'; });
     document.querySelectorAll('.planner-only').forEach(node => { node.hidden = !permitted('accessPlanner'); });
     renderHome(); renderCalendar(); renderChat(); renderAdmin(); route(false); $('#appContent').setAttribute('aria-busy', 'false');
+    $('#offlineCalendar').checked = window.PolynomialCalendarCache?.enabled();
+    if (offline) { for (const node of document.querySelectorAll('[data-add-task],[data-edit-task],[data-delete-task],[data-pause-task],[data-task-toggle],#enableReminders,#disableReminders,#testReminders,#saveBrief')) { node.dataset.offlineDisabled = String(node.disabled); node.disabled = true; } $('#accountRole').textContent = '离线日程副本 · 只读'; }
+    document.dispatchEvent(new CustomEvent('polynomial-snapshot', { detail: { data, admin, butler, offline } }));
   }
   let refreshTail = Promise.resolve();
   function refresh() { const run = refreshTail.catch(() => {}).then(refreshSnapshot); refreshTail = run; return run; }
   async function refreshSnapshot() {
     refreshing = true; $('#refreshApp').classList.add('refreshing'); $('#refreshApp').disabled = true;
     try {
-      data = await api('/api/workspace');
+      const snapshot = await api('/api/workspace');
+      const stored = window.PolynomialCalendarCache?.load(); if (stored && stored.user.id !== snapshot.user.id) window.PolynomialCalendarCache.clear();
+      data = snapshot; offline = false; window.PolynomialCalendarCache?.save(data);
       if (data.user.role === 'admin') { const results = await Promise.allSettled([api('/api/admin/assistant'), api('/api/admin/butler')]); admin = results[0].status === 'fulfilled' ? results[0].value : admin; butler = results[1].status === 'fulfilled' ? results[1].value : butler; }
       render(); maybeBrief(); window.PolynomialReminderUI?.sync(data).catch(error => console.warn('Reminder sync:', error));
       $('#connectionStatus').textContent = `已同步 · ${new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })}`;
       if (!$('#appChatMessage').value) { try { $('#appChatMessage').value = sessionStorage.getItem(`assistant-draft:${data.user.id}`) || ''; } catch {} updateDraft(); }
-    } catch (error) { $('#connectionStatus').textContent = '暂未同步 · 点击刷新重试'; $('#appContent').setAttribute('aria-busy', 'false'); throw error; }
+    } catch (error) {
+      const cached = error.network && window.PolynomialCalendarCache?.load();
+      if (cached) { data = cached; admin = null; butler = null; offline = true; render(); $('#connectionStatus').textContent = `离线副本 · ${fullTime(cached.savedAt)}`; notice('当前显示此设备保存的日程，只能查看。网络恢复后自动同步。', 'error'); }
+      else { $('#connectionStatus').textContent = '暂未同步 · 点击刷新重试'; $('#appContent').setAttribute('aria-busy', 'false'); throw error; }
+    }
     finally { refreshing = false; $('#refreshApp').classList.remove('refreshing'); $('#refreshApp').disabled = false; }
   }
   function updateDraft() { const input = $('#appChatMessage'); input.style.height = 'auto'; input.style.height = `${Math.min(200, Math.max(76, input.scrollHeight))}px`; $('#messageCount').textContent = `${input.value.length} / 4000`; if (data) try { sessionStorage.setItem(`assistant-draft:${data.user.id}`, input.value); } catch {} }
@@ -184,7 +207,7 @@
   $('#confirmDialog').addEventListener('close', () => { confirmation?.(false); confirmation = null; });
   $('#taskForm').onsubmit = async event => {
     event.preventDefault(); const button = $('#saveTask'); button.disabled = true; $('#taskError').hidden = true;
-    try { const due = $('#appPlanDate').value, payload = { title: $('#appPlanTitle').value.trim(), dueAt: due ? new Date(`${due}:00+08:00`).toISOString() : null, scheduled: $('#taskScheduled').checked }; await api(editingTask ? `/api/workspace/planner/${editingTask}` : '/api/workspace/planner', { method: editingTask ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); $('#taskDialog').close(); notice(editingTask ? '日程已更新，提醒时间同步调整。' : '日程已添加。'); await refresh().catch(error => notice(`已保存，但刷新失败：${error.message}`, 'error')); }
+    try { const due = $('#appPlanDate').value, payload = { ...(editingTask ? { ifUnmodifiedSince: data.planner.find(row => row.id === editingTask)?.updatedAt || data.planner.find(row => row.id === editingTask)?.createdAt } : {}), title: $('#appPlanTitle').value.trim(), dueAt: due ? new Date(`${due}:00+08:00`).toISOString() : null, scheduled: $('#taskScheduled').checked }; await api(editingTask ? `/api/workspace/planner/${editingTask}` : '/api/workspace/planner', { method: editingTask ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); $('#taskDialog').close(); notice(editingTask ? '日程已更新，提醒时间同步调整。' : '日程已添加。'); await refresh().catch(error => notice(`已保存，但刷新失败：${error.message}`, 'error')); }
     catch (error) { $('#taskError').textContent = error.message; $('#taskError').hidden = false; }
     finally { button.disabled = false; }
   };
@@ -195,15 +218,23 @@
     if (button.dataset.editTask) openTask(button.dataset.editTask);
     if (button.dataset.date) { selected = button.dataset.date; month = selected.slice(0, 7); renderCalendar(); }
     if (button.dataset.filter) { filter = button.dataset.filter; renderAgenda(); }
-    if (button.dataset.pauseTask) { const item = data.planner.find(row => row.id === button.dataset.pauseTask); button.disabled = true; try { await api(`/api/workspace/planner/${item.id}`, { method: 'PATCH', body: JSON.stringify({ scheduled: item.scheduled === false }) }); await refresh(); notice(item.scheduled === false ? '已恢复这项安排。' : '已暂停这项安排，不再发送提醒。'); } finally { button.disabled = false; } }
+    if (button.dataset.pauseTask) { const item = data.planner.find(row => row.id === button.dataset.pauseTask); button.disabled = true; try { await api(`/api/workspace/planner/${item.id}`, { method: 'PATCH', body: JSON.stringify({ scheduled: item.scheduled === false, ifUnmodifiedSince: item.updatedAt || item.createdAt }) }); await refresh(); notice(item.scheduled === false ? '已恢复这项安排。' : '已暂停这项安排，不再发送提醒。'); } finally { button.disabled = false; } }
     if (button.dataset.deleteTask) { const item = data.planner.find(row => row.id === button.dataset.deleteTask); if (await confirmDelete(item.title)) { await api(`/api/workspace/planner/${item.id}`, { method: 'DELETE' }); await refresh(); notice('日程已删除。'); } }
     if (button.dataset.cancelQueue) { button.disabled = true; try { await api(`/api/workspace/assistant/queue/${button.dataset.cancelQueue}`, { method: 'DELETE' }); await refresh(); notice('已取消这条排队消息。'); } finally { button.disabled = false; } }
     if (button.dataset.copyMessage) { await navigator.clipboard.writeText(data.chats[Number(button.dataset.copyMessage)].content); notice('回复已复制。'); }
+    if (button.dataset.cancelButler) { await api(`/api/admin/butler/actions/${button.dataset.cancelButler}/cancel`, { method: 'POST', body: '{}' }); await refresh(); notice('权限操作已取消。'); }
+    if (button.dataset.confirmButler) {
+      const proposal = butler.actions.find(item => item.id === button.dataset.confirmButler);
+      if (!proposal || proposal.status !== 'pending') throw new Error('操作已过期，请重新提出请求');
+      $('#butlerConfirmSummary').innerHTML = `<p>${esc(proposal.targetName)}</p><p>${esc(proposal.label || proposal.permission)}：<strong>${proposal.before ? '开放' : '关闭'} → ${proposal.value ? '开放' : '关闭'}</strong></p><p class="fine-print">服务器会再次核对当前权限；操作会写入审计记录。</p>`;
+      const dialog = $('#butlerConfirm'); dialog.returnValue = ''; const accepted = new Promise(resolve => dialog.addEventListener('close', () => resolve(dialog.returnValue === 'accept'), { once: true })); dialog.showModal();
+      if (await accepted) { await api(`/api/admin/butler/actions/${proposal.id}/confirm`, { method: 'POST', body: '{}' }); await refresh(); notice('权限变更已执行。'); }
+    }
     if (button.dataset.prompt) { location.hash = 'assistant'; $('#appChatMessage').value = button.dataset.prompt; updateDraft(); $('#appChatMessage').focus(); }
   }, false));
   document.addEventListener('change', action(async event => {
     const input = event.target;
-    if (input.dataset.taskToggle) { input.disabled = true; try { await api(`/api/workspace/planner/${input.dataset.taskToggle}`, { method: 'PATCH', body: JSON.stringify({ done: input.checked }) }); await refresh(); notice(input.checked ? '已标记完成。' : '日程已重新打开。'); } catch (error) { input.checked = !input.checked; throw error; } finally { input.disabled = false; } }
+    if (input.dataset.taskToggle) { input.disabled = true; try { await api(`/api/workspace/planner/${input.dataset.taskToggle}`, { method: 'PATCH', body: JSON.stringify({ done: input.checked, ifUnmodifiedSince: data.planner.find(row => row.id === input.dataset.taskToggle)?.updatedAt || data.planner.find(row => row.id === input.dataset.taskToggle)?.createdAt }) }); await refresh(); notice(input.checked ? '已标记完成。' : '日程已重新打开。'); } catch (error) { input.checked = !input.checked; throw error; } finally { input.disabled = false; } }
   }, false));
   function openBrief() {
     if (!data) return;
@@ -243,7 +274,8 @@
   $('#refreshHealth').onclick = action(async () => { const button = $('#refreshHealth'); button.disabled = true; try { await api('/api/admin/health/run', { method: 'POST' }); await refresh(); notice('基础报告已刷新。'); } finally { button.disabled = false; } });
   $('#reviewScheduleForm').onsubmit = action(async () => { const button = $('#reviewScheduleForm button'); button.disabled = true; try { await api('/api/admin/assistant', { method: 'PATCH', body: JSON.stringify({ assistantReviewFrequency: $('#appReviewFrequency').value }) }); await refresh(); notice('自动巡检间隔已保存。'); } finally { button.disabled = false; } });
   $('#appearance').onchange = () => { storage.set('polynomial:appearance', $('#appearance').value); applyAppearance(); notice('外观偏好已保存到此设备。'); }; $('#compactLayout').onchange = () => { storage.set('polynomial:compact', $('#compactLayout').checked); applyAppearance(); };
-  $('#appLogout').onclick = action(async () => { await window.PolynomialReminderUI?.logout().catch(() => {}); if (data) try { sessionStorage.removeItem(`assistant-draft:${data.user.id}`); } catch {} await api('/api/logout', { method: 'POST' }); location.href = '/login.html?next=%2Fapp.html'; });
+  $('#offlineCalendar').onchange = () => { window.PolynomialCalendarCache?.setEnabled($('#offlineCalendar').checked); if ($('#offlineCalendar').checked && data && !offline) window.PolynomialCalendarCache.save(data); notice($('#offlineCalendar').checked ? '此设备会保存日程供离线查看。' : '此设备的离线日程已清除。'); };
+  $('#appLogout').onclick = action(async () => { await window.PolynomialReminderUI?.logout().catch(() => {}); if (data) try { sessionStorage.removeItem(`assistant-draft:${data.user.id}`); } catch {} window.PolynomialCalendarCache?.clear(); offline = false; await api('/api/logout', { method: 'POST' }); location.href = '/login.html?next=%2Fapp.html'; });
   function renderCommands() {
     const query = $('#commandQuery').value.trim().toLowerCase();
     const pages = Object.entries(pageNames).filter(([name]) => name !== 'control' || data?.user.role === 'admin').map(([name, title]) => [null, name === 'assistant' ? 'spark' : name === 'control' ? 'shield' : name === 'account' ? 'user' : name, title, '应用页面', `#${name}`]);
@@ -265,5 +297,18 @@
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyAppearance);
   updateTime(); route(false); setInterval(updateTime, 60000); setInterval(() => { if (!document.hidden && !busy && !$('#taskDialog').open) refresh().catch(error => notice(error.message, 'error')); }, 60000);
   refresh().catch(error => notice(error.message, 'error'));
-  api('/api/client/releases').then(release => { const info = navigator.userAgent.match(/PolynomialClient\/([\w.-]+) \((\w+); ([\w-]+)\)/); $('#clientVersion').textContent = info ? `已安装客户端 v${info[1]} · ${info[2]} / ${info[3]}。当前界面 v${release.uiVersion}，联网自动更新。` : `网页 / 主屏幕界面 v${release.uiVersion}，联网自动更新。`; $('#checkClientUpdate').href = '/download.html' + (info ? `?installed=${encodeURIComponent(info[1])}&platform=${encodeURIComponent(info[2])}&arch=${encodeURIComponent(info[3])}` : ''); }).catch(() => { $('#clientVersion').textContent = '版本信息暂不可读取，请到下载中心查看。'; });
+  async function checkClientUpdate() {
+    try {
+      const release = await api('/api/client/releases'), info = navigator.userAgent.match(/PolynomialClient\/([\w.-]+) \((\w+); ([\w-]+)\)/);
+      $('#clientVersion').textContent = info ? `已安装客户端 v${info[1]} · ${info[2]} / ${info[3]}。当前界面 v${release.uiVersion}，联网自动更新。` : `网页 / 主屏幕界面 v${release.uiVersion}，联网自动更新。`;
+      $('#checkClientUpdate').href = '/download.html' + (info ? `?installed=${encodeURIComponent(info[1])}&platform=${encodeURIComponent(info[2])}&arch=${encodeURIComponent(info[3])}` : '');
+      if (info) {
+        const result = await api(`/api/client/update?${new URLSearchParams({ installed: info[1], platform: info[2], arch: info[3] })}`);
+        $('#clientUpdateStatus').dataset.state = result.required ? 'required' : result.updateAvailable ? 'available' : 'current';
+        $('#clientUpdateStatus').textContent = result.required ? `当前安装版本已低于兼容要求或停止分发，请升级至推荐版本 v${result.recommendedVersion || '待发布'}。` : result.updateAvailable ? `有新版本 v${result.recommendedVersion} 可安装。` : '已使用当前推荐版本。';
+        $('#clientUpdateDetails').hidden = !result.notes; $('#clientUpdateNotes').textContent = result.notes;
+      } else $('#clientUpdateStatus').textContent = '联网界面自动更新，原生安装包更新在下载中心提供。';
+    } catch { $('#clientUpdateStatus').textContent = '版本检查暂未成功，恢复连接后重试。'; }
+  }
+  checkClientUpdate(); setInterval(checkClientUpdate, 6 * 3600000);
 })();

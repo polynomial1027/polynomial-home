@@ -1,1 +1,1 @@
-{"name":"polynomial-lite-client","version":"0.3.6","private":true,"scripts":{"build":"tauri build"},"devDependencies":{"@tauri-apps/cli":"2.12.2"}}
+{"name":"polynomial-lite-client","version":"0.3.8","private":true,"scripts":{"build":"tauri build"},"devDependencies":{"@tauri-apps/cli":"2.12.2"}}

@@ -29,3 +29,9 @@ apps/android/local.properties
 *.jks
 *.p12
 *.mobileprovision
+
+# Runtime account data and backups
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

@@ -76,6 +76,14 @@ public final class Reminders extends BroadcastReceiver {
             if (permitted(activity)) schedule(activity, tasks);
         } catch (Exception ignored) {}
     }
+    @JavascriptInterface public void testNotification() {
+        if (activity == null || !enabled()) return;
+        activity.runOnUiThread(() -> {
+            channel(activity);
+            Notification notification = new Notification.Builder(activity, CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle("通知测试").setContentText("你的设备已接通 Polynomial 日程提醒。").setAutoCancel(true).build();
+            ((NotificationManager) activity.getSystemService(Context.NOTIFICATION_SERVICE)).notify(3800, notification);
+        });
+    }
     @JavascriptInterface public void disable() {
         if (activity == null) return;
         activity.runOnUiThread(() -> { cancel(activity, saved(activity)); prefs(activity).edit().clear().apply(); });

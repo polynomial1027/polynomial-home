@@ -27,7 +27,12 @@ const webpush = require('web-push');
 const adminButler = require('./lib/admin-butler');
 const { priceWindow, safeOffPeakStart } = require('./lib/pricing');
 const { generateReport } = require('./lib/health');
-const { runReview, autoReviewDue } = require('./lib/maintenance');
+const { runReview } = require('./lib/maintenance');
+const { getDatabase } = require('./lib/store');
+const { BackupService } = require('./lib/backups');
+const { JobScheduler } = require('./lib/jobs');
+const security = require('./lib/security');
+const { createOperationsApi } = require('./lib/operations-api');
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +41,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 // 开发目录使用 public/；发布压缩包把网页放在根目录，方便直接找到 index.html。
 const nestedPublicDir = path.join(__dirname, 'public');
 const publicDir = fs.existsSync(path.join(nestedPublicDir, 'index.html')) ? nestedPublicDir : __dirname;
+const dataLock = require('./lib/service-lock').claim(dataDir);
 const state = load();
 const pushKeys = reminders.vapidKeys(dataDir);
 webpush.setVapidDetails('https://polynomial-server.tail722ac8.ts.net/', pushKeys.publicKey, pushKeys.privateKey);
@@ -58,6 +64,7 @@ const recoveryAttempts = new Map();
 const recoveryRequestAttempts = new Map();
 const recoveryRequestByUser = new Map();
 const feedbackAttempts = new Map();
+const reminderTests = new Map();
 const userPresence = new Map();
 const notebookActivity = new Map();
 const notebookSockets = new Map();
@@ -410,7 +417,7 @@ function pruneFeedback() {
 }
 
 async function api(req, res, url) {
-  if (req.method !== 'GET' && (url.pathname.startsWith('/api/workspace/') || url.pathname.startsWith('/api/admin/assistant') || url.pathname.startsWith('/api/admin/butler') || url.pathname === '/api/admin/health/run' || url.pathname.startsWith('/api/downloads') || url.pathname.startsWith('/api/client/releases'))) {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     const origin = req.headers.origin;
     if (origin) {
       let sameOrigin = false;
@@ -418,15 +425,19 @@ async function api(req, res, url) {
       if (!sameOrigin) return json(res, 403, { error: '请求来源不匹配' });
     }
   }
+  if (backups.busy && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !url.pathname.startsWith('/api/admin/operations/')) return json(res, 503, { error: '正在创建或验证备份，请稍后重试' });
+  if (await operationsApi(req, res, url)) return;
+  if (url.pathname === '/api/health' && req.method === 'GET') return json(res, 200, { ok: true, version: require('./package.json').version });
   const clientDeliveryMatch = url.pathname.match(/^\/api\/client\/delivery\/(Polynomial-[A-Za-z0-9_.-]+)$/);
   if (clientDeliveryMatch && req.method === 'PUT') { const result = await deliverClient(req, clientDeliveryMatch[1]); return json(res, result.status, result); }
   if (url.pathname === '/api/client/releases' && req.method === 'GET') return json(res, 200, { uiVersion: require('./package.json').version, ...clientReleases.manifest(state) });
+  if (url.pathname === '/api/client/update' && req.method === 'GET') { try { return json(res, 200, clientReleases.checkUpdate(state, url.searchParams)); } catch (error) { return json(res, 400, { error: error.message }); } }
   const clientReleaseMatch = url.pathname.match(/^\/api\/client\/releases\/([^/]+)$/);
   if (clientReleaseMatch && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; try { const release = clientReleases.update(state, clientReleaseMatch[1], await body(req)); save(state); return json(res, 200, { release }); } catch (error) { return json(res, 400, { error: error.message }); } }
   if (url.pathname === '/api/downloads' && req.method === 'GET') return json(res, 200, { releases: clientReleases.manifest(state), resources: (state.resourceDownloads || []).map(item => resources.view(state, item)).filter(Boolean) });
   if (url.pathname === '/api/downloads' && req.method === 'POST') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
-    try { const item = resources.publish(state, await body(req), admin.id); save(state); return json(res, 201, { resource: item }); } catch (error) { return json(res, 400, { error: error.message }); }
+    try { const payload = await body(req), file = state.driveFiles.find(item => item.id === payload.fileId && item.scope === 'public'); if (!file) throw new Error('文件不存在'); payload.sha256 = await require('./lib/backups').digest(path.join(driveDir, file.storedName)); const item = resources.publish(state, payload, admin.id); save(state); return json(res, 201, { resource: item }); } catch (error) { return json(res, 400, { error: error.message }); }
   }
   const resourceContent = url.pathname.match(/^\/api\/downloads\/([a-f0-9-]+)\/content$/);
   if (resourceContent && req.method === 'GET') {
@@ -451,6 +462,11 @@ async function api(req, res, url) {
       appendAudit({ action: 'login-failed', req, success: false, detail: String(data.username || '').trim() }); save(state);
       return json(res, 401, { error: '账号或密码错误' });
     }
+    if (!security.verifyFactor(user, data.code)) {
+      recent.push(Date.now()); loginAttempts.set(ip, recent);
+      appendAudit({ action: 'login-failed', req, success: false, detail: `${user.username}; MFA required or invalid` }); save(state);
+      return json(res, 401, { error: '请输入验证器中的六位验证码，或使用一次性恢复码', totpRequired: true });
+    }
     const token = crypto.randomBytes(32).toString('hex');
     state.sessions = state.sessions.filter(s => new Date(s.expiresAt) > new Date());
     state.sessions.push({ token, userId: user.id, address: ip, userAgent: String(req.headers['user-agent'] || '').slice(0, 500), createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString() });
@@ -466,7 +482,7 @@ async function api(req, res, url) {
     recent.push(Date.now()); recoveryAttempts.set(ip, recent);
     const data = await body(req), username = String(data.username || '').trim(), password = String(data.password || '');
     const user = state.users.find(item => item.username.toLowerCase() === username.toLowerCase() && item.role === 'admin' && item.active);
-    if (password.length < 4) return json(res, 400, { error: '密码至少 4 位' });
+    if (security.passwordError(password, 'admin')) return json(res, 400, { error: security.passwordError(password, 'admin') });
     if (!user || !consumeRecoveryRequest(passwordRecoveryDir, username, data.code).ok) {
       appendAudit({ action: 'password-recovery-failed', req, success: false, detail: username }); save(state);
       return json(res, 400, { error: '恢复信息无效或已过期，请在服务器上重新生成恢复码' });
@@ -516,7 +532,15 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/workspace/reminders' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
-    return json(res, 200, { publicKey: pushKeys.publicKey, subscriptions: (state.pushSubscriptions || []).filter(item => item.userId === user.id).map(item => item.endpoint) });
+    return json(res, 200, { publicKey: pushKeys.publicKey, subscriptions: (state.pushSubscriptions || []).filter(item => item.userId === user.id).map(item => item.endpoint), deliveries: (state.reminderDeliveries || []).filter(item => item.userId === user.id).slice(-20).map(({ endpoint, ...row }) => row) });
+  }
+  if (url.pathname === '/api/workspace/reminders/test' && req.method === 'POST') {
+    const user = requireUser(req, res); if (!user) return;
+    const previous = reminderTests.get(user.id) || 0;
+    if (Date.now() - previous < 60000) return json(res, 429, { error: '请一分钟后再次测试' });
+    reminderTests.set(user.id, Date.now());
+    try { await reminders.testNotification({ state, user, endpoint: String((await body(req)).endpoint || '') }); return json(res, 200, { ok: true }); }
+    catch (error) { return json(res, 400, { error: error.message }); }
   }
   if (url.pathname === '/api/workspace/reminders' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return;
@@ -550,7 +574,7 @@ async function api(req, res, url) {
       const data = await body(req);
       if (!['title', 'dueAt', 'done', 'scheduled'].some(key => Object.hasOwn(data, key))) return json(res, 400, { error: '没有可修改的事项内容' });
       try { plannerService.updateItem(state, save, user, plannerMatch[1], data); }
-      catch (error) { return json(res, 400, { error: error.message }); }
+      catch (error) { return json(res, error.code === 'CONFLICT' ? 409 : 400, { error: error.message }); }
     }
     return json(res, 200, { ok: true });
   }
@@ -612,7 +636,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/admin/butler' && req.method === 'GET') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
-    return json(res, 200, { chats: state.adminButlerChats.filter(item => item.adminId === admin.id).slice(-30), actions: state.adminButlerActions.filter(item => item.adminId === admin.id).slice(-30).map(item => ({ id: item.id, targetId: item.targetId, targetName: state.users.find(user => user.id === item.targetId)?.displayName || '已删除用户', permission: item.permission, value: item.value, status: item.status === 'pending' && Date.now() - new Date(item.createdAt).getTime() >= 10 * 60_000 ? 'expired' : item.status })) });
+    return json(res, 200, { chats: state.adminButlerChats.filter(item => item.adminId === admin.id).slice(-30), actions: state.adminButlerActions.filter(item => item.adminId === admin.id).slice(-30).map(item => adminButler.actionView(item, state.users)) });
   }
   if (url.pathname === '/api/admin/butler' && req.method === 'POST') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
@@ -620,7 +644,7 @@ async function api(req, res, url) {
     if (!message || message.length > 1000) return json(res, 400, { error: '请输入 1–1000 字的问题' });
     const now = Date.now();
     const onlineCount = state.users.filter(user => user.active && (now - new Date(userPresence.get(user.id)?.lastSeenAt || 0).getTime() < 120_000 || [...goWss.clients, ...wss.clients].some(client => client.readyState === 1 && client.user?.id === user.id))).length;
-    let result = adminButler.localAnswer({ message, state, onlineCount, admin });
+    let result = adminButler.localAnswer({ message, state, onlineCount, admin, report: /服务器|内存|磁盘|负载|异常|巡检|状况/.test(message) ? generateReport(state, save, new Date(), true) : null });
     if (!result) {
       if (!assistantKey || !state.settings.assistantEnabled) return json(res, 503, { error: 'AI 管家需要先开启 DeepSeek；在线人数和登录记录查询仍可用' });
       const report = generateReport(state, save, new Date(), true), review = state.assistantReviews.find(item => item.status === 'completed');
@@ -628,15 +652,16 @@ async function api(req, res, url) {
       try { result = await adminButler.answerWithAi({ state, save, admin, message, context, key: assistantKey, model: assistantModel }); }
       catch (error) { return json(res, error.code === 'AI_LIMIT' ? 429 : 502, { error: error.message }); }
     }
-    const entry = { id: crypto.randomUUID(), adminId: admin.id, message: /密码/.test(message) ? '请求修改账号密码（内容不保留）' : message, reply: result.reply, link: result.link || null, actionId: result.action?.id || null, at: new Date().toISOString() };
+    const entry = { id: crypto.randomUUID(), adminId: admin.id, message: /密码/.test(message) ? '请求修改账号密码（内容不保留）' : message, reply: result.reply, link: result.link || null, actionId: result.action?.id || null, factsAt: result.factsAt || new Date().toISOString(), windowStart: result.windowStart || null, windowEnd: result.windowEnd || null, source: result.source || 'AI 根据提供的汇总指标回答', at: new Date().toISOString() };
     state.adminButlerChats.push(entry); state.adminButlerChats = state.adminButlerChats.slice(-300); save(state);
-    return json(res, 200, { entry, action: result.action ? { id: result.action.id, targetId: result.action.targetId, targetName: state.users.find(user => user.id === result.action.targetId)?.displayName, permission: result.action.permission, value: result.action.value } : null });
+    return json(res, 200, { entry, action: result.action ? adminButler.actionView(result.action, state.users) : null });
   }
-  const butlerActionMatch = url.pathname.match(/^\/api\/admin\/butler\/actions\/([a-f0-9-]+)\/confirm$/);
+  const butlerActionMatch = url.pathname.match(/^\/api\/admin\/butler\/actions\/([a-f0-9-]+)\/(confirm|cancel)$/);
   if (butlerActionMatch && req.method === 'POST') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
     const action = state.adminButlerActions.find(item => item.id === butlerActionMatch[1] && item.adminId === admin.id && item.status === 'pending');
     if (!action || Date.now() - new Date(action.createdAt).getTime() >= 10 * 60_000) return json(res, 404, { error: '操作已过期，请重新向管家提出请求' });
+    if (butlerActionMatch[2] === 'cancel') { action.status = 'cancelled'; appendAudit({ user: admin, action: 'butler-action-cancel', req, detail: action.id }); save(state); return json(res, 200, { ok: true }); }
     const target = state.users.find(item => item.id === action.targetId && item.active && item.role === 'member');
     if (!target || !Object.hasOwn(adminButler.permissionLabels, action.permission)) return json(res, 409, { error: '账号或权限已变化，请重新提出请求' });
     if ((target.permissions?.[action.permission] === true) !== action.expectedValue) return json(res, 409, { error: '权限在核对后发生变化，请重新提出请求' });
@@ -1108,7 +1133,7 @@ async function api(req, res, url) {
     if (!requireUser(req, res, 'admin')) return;
     const data = await body(req); const username = String(data.username || '').trim(); const password = String(data.password || '');
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
-    if (password.length < 4) return json(res, 400, { error: '密码至少 4 位' });
+    if (security.passwordError(password, data.role)) return json(res, 400, { error: security.passwordError(password, data.role) });
     if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) return json(res, 409, { error: '账号已存在' });
     const user = normalizeUser({ id: crypto.randomUUID(), username, displayName: String(data.displayName || username).trim().slice(0, 30), role: data.role === 'admin' ? 'admin' : 'member', active: true, passwordHash: hashPassword(password), permissions: { ...defaultPermissions, ...(data.permissions || {}) }, driveQuotaMB: Number(data.driveQuotaMB) || 1024, createdAt: new Date().toISOString() });
     state.users.push(user); save(state); return json(res, 201, { user: publicUser(user) });
@@ -1125,17 +1150,19 @@ async function api(req, res, url) {
     const removingAdmin = target.role === 'admin' && (data.role === 'member' || data.active === false); const activeAdmins = state.users.filter(user => user.role === 'admin' && user.active);
     if (target.id === admin.id && (data.active === false || data.role === 'member')) return json(res, 400, { error: '不能停用或降级当前管理员账号' });
     if (removingAdmin && activeAdmins.length <= 1) return json(res, 400, { error: '必须保留至少一个启用的管理员' });
-    if (data.password && String(data.password).length < 4) return json(res, 400, { error: '密码至少 4 位' });
+    if (data.password && security.passwordError(String(data.password), data.role || target.role)) return json(res, 400, { error: security.passwordError(String(data.password), data.role || target.role) });
     if (data.driveQuotaMB !== undefined && (!Number.isSafeInteger(Number(data.driveQuotaMB)) || Number(data.driveQuotaMB) < 0)) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' });
+    const previousAccount = { username: target.username, displayName: target.displayName, role: target.role, active: target.active, driveQuotaMB: target.driveQuotaMB, permissions: { ...target.permissions } };
     target.username = username; target.displayName = displayName;
     if (typeof data.active === 'boolean') target.active = data.active;
     if (data.role === 'admin' || data.role === 'member') target.role = data.role;
     if (data.permissions && typeof data.permissions === 'object') target.permissions = updatePermissions(target.permissions, data.permissions);
     if (data.driveQuotaMB !== undefined) { const quota = Number(data.driveQuotaMB); if (!Number.isSafeInteger(quota) || quota < 0) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' }); target.driveQuotaMB = quota; }
-    if (data.password) { if (String(data.password).length < 4) return json(res, 400, { error: '密码至少 4 位' }); target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
+    if (data.password) { target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
     if (!target.active || !allowed(target, 'accessNotebook')) { closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); }
     if (previouslyHadGo && (!target.active || !allowed(target, 'accessGames') || !allowed(target, 'accessGo'))) { goService.markPresence(target.id, false); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'go access disabled'); }); }
+    appendAudit({ user: admin, action: 'account-updated', req, detail: JSON.stringify({ targetId: target.id, username: target.username, passwordChanged: Boolean(data.password), changed: Object.keys(previousAccount).filter(key => JSON.stringify(previousAccount[key]) !== JSON.stringify(target[key])) }) });
     save(state); return json(res, 200, { user: publicUser(target), passwordChanged: Boolean(data.password) });
   }
   if (match && req.method === 'DELETE') {
@@ -1192,8 +1219,23 @@ function staticFile(req, res, url) {
   });
 }
 
+const activeMutations = new Set();
+const backups = new BackupService({ dataDir, database: getDatabase(), beforeSnapshot: async () => {
+  const deadline = Date.now() + 120000;
+  while (activeMutations.size) { if (Date.now() > deadline) throw new Error('仍有修改操作进行中，备份稍后重试'); await new Promise(resolve => setTimeout(resolve, 50)); }
+} });
+const scheduler = new JobScheduler({ state, save, model: assistantModel, audit: appendAudit, handlers: {
+  health: { ready: () => true, run: async () => { security.pruneSensitiveRecords(state); const report = generateReport(state, save, new Date(), true); return { summary: report.notes }; } },
+  backup: { ready: () => true, run: async () => { const result = await backups.create({ source: 'auto', retention: state.settings.backupRetention }); return { summary: `备份已恢复验证，${result.fileCount} 个文件` }; } },
+  review: { ready: () => Boolean(assistantKey && state.settings.assistantEnabled && state.users.some(user => user.active && user.role === 'admin')), run: async () => performMaintenanceReview(state.users.find(user => user.active && user.role === 'admin'), 'auto') }
+} });
+const operationsApi = createOperationsApi({ state, save, json, body, requireUser, cookies, verifyPassword, hashPassword, appendAudit, scheduler, backups, closeSession: session => {
+  closeNotebookSockets(session.userId, session.token);
+  for (const hub of [wss, goWss]) hub.clients.forEach(client => { if (client.sessionToken === session.token) client.close(4003, 'session revoked'); });
+} });
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !url.pathname.startsWith('/api/admin/operations')) { activeMutations.add(req); const done = () => activeMutations.delete(req); res.once('finish', done); res.once('close', done); }
   const actor = currentUser(req);
   if (actor) {
     touchPresence(actor, req);
@@ -1302,14 +1344,9 @@ async function cleanupIdleNotebooks() {
 }
 setInterval(cleanupIdleNotebooks, 60_000).unref();
 setInterval(() => { try { goService.maintenance(); } catch (error) { console.error('Go maintenance error:', error.message); } }, 5_000).unref();
-setInterval(() => { if (pruneFeedback()) save(state); }, 3_600_000).unref();
+setInterval(() => { const pruned = pruneFeedback(); if (security.pruneSensitiveRecords(state) || pruned) save(state); }, 3_600_000).unref();
 generateReport(state, save);
-async function maybeAutoReview() {
-  if (!assistantKey || !state.settings.assistantEnabled || !autoReviewDue(state) || maintenanceReviewRunning || !safeOffPeakStart(new Date(), assistantModel)) return;
-  const admin = state.users.find(item => item.role === 'admin' && item.active);
-  if (!admin) return;
-  try { await performMaintenanceReview(admin, 'auto'); } catch (error) { console.error('AI maintenance review error:', error.message); }
-}
+async function maybeAutoReview() { return scheduler.tick(); }
 async function maybeSendQueuedChats() {
   if (queuedChatRunning || !safeOffPeakStart(new Date(), assistantModel)) return;
   queuedChatRunning = true;
@@ -1348,6 +1385,7 @@ async function shutdown(signal) {
   console.log(`收到 ${signal}，正在安全关闭服务…`);
   server.close();
   try { await kataGo.stop(); } catch (error) { console.error('KataGo shutdown error:', error.message); }
+  dataLock.release();
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

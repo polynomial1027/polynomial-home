@@ -61,11 +61,12 @@ test('password edit invalidates old login, persists across restart, and member A
     assert.equal((await fetch(`http://127.0.0.1:${port}${published.body.resource.downloadUrl}`)).status,410);
     await call('/api/client/releases/0.3.1', 'PATCH', {status:'testing',notes:'test restored'}, admin.cookie);
     await stop();
-    const savedPath = path.join(directory, 'store.json'), saved = JSON.parse(fs.readFileSync(savedPath, 'utf8'));
+    const { StateDatabase } = require('../lib/database');
+    const savedDb = new StateDatabase(directory), saved = savedDb.read();
     const recordId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', day = require('../lib/assistant').dayKey();
     saved.assistantUsage.push({ id: recordId, userId: member.body.user.id, day, month: day.slice(0,7), at: new Date().toISOString(), tokens: 123, requests: 1, status: 'completed', detail: { source: 'chat', model: 'test-model', messages: [{role:'user',content:'private member question'}], response: 'private member answer' } });
     saved.assistantChats.push({userId:member.body.user.id,role:'user',content:'old member question',at:new Date().toISOString()});
-    fs.writeFileSync(savedPath, JSON.stringify(saved));
+    savedDb.write(saved); savedDb.close();
     await start();
     const logged = await call('/api/login', 'POST', { username: 'test-member', password: 'new-password' });
     assert.equal(logged.status, 200);

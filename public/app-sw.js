@@ -1,16 +1,21 @@
-// Only the public offline fallback is cached. Account pages, API data and downloads always use the network.
-const CACHE='polynomial-offline-v030-1';
-self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.add('/offline.html')).then(()=>self.skipWaiting())));
-self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('polynomial-offline-')&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
-self.addEventListener('fetch',event=>{if(event.request.mode==='navigate'&&new URL(event.request.url).origin===self.location.origin)event.respondWith(fetch(event.request).catch(()=>caches.match('/offline.html')));});
+const CACHE = 'polynomial-offline-v038';
+// Cache only public application files. APIs, account responses and downloads
+// always use the network; calendar data requires a separate device opt-in.
+const SHELL = ['/offline.html', '/app.html', '/assets/app/app.css', '/assets/app/app.js', '/assets/app/local-cache.js', '/assets/app/operations.js', '/assets/app/reminders.js', '/assets/workspace-math.js', '/assets/vendor/katex/katex.min.js', '/assets/vendor/katex/katex.min.css', '/assets/app/icon-192.png'];
+self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting())));
+self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('polynomial-offline-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+  if (SHELL.includes(url.pathname)) {
+    event.respondWith(fetch(event.request).then(response => { if (response.ok) { const copy = response.clone(); event.waitUntil(caches.open(CACHE).then(cache => cache.put(url.pathname, copy))); } return response; }).catch(() => caches.match(url.pathname)));
+  } else if (event.request.mode === 'navigate') event.respondWith(fetch(event.request).catch(() => caches.match('/offline.html')));
+});
 self.addEventListener('push', event => {
-  let payload = {};
-  try { payload = event.data?.json() || {}; } catch {}
-  event.waitUntil(self.registration.showNotification('日程提醒', {
-    body: String(payload.body || '有一项日程已到时间').slice(0, 120),
-    icon: '/assets/app/icon-192.png',
-    tag: `planner-${String(payload.itemId || '')}`,
-    data: { url: '/app.html#calendar' }
+  let payload = {}; try { payload = event.data?.json() || {}; } catch {}
+  event.waitUntil(self.registration.showNotification(String(payload.title || '日程提醒').slice(0, 60), {
+    body: String(payload.body || '有一项日程已到时间').slice(0, 120), icon: '/assets/app/icon-192.png',
+    tag: `planner-${String(payload.itemId || '')}-${String(payload.dueAt || '')}`, data: { url: '/app.html#calendar' }
   }));
 });
 self.addEventListener('notificationclick', event => {
