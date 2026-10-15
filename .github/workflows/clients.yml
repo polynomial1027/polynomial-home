@@ -1,6 +1,11 @@
 name: Build clients
 on:
   workflow_dispatch:
+    inputs:
+      build_legacy_desktop:
+        description: 'Also build the archived Electron desktop client'
+        type: boolean
+        default: false
   push:
     branches: [codex/ai-framework]
     paths: ['apps/desktop/**', 'apps/android/**', 'apps/ios/**', '.github/workflows/clients.yml']
@@ -16,6 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run check && npm test
   desktop:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_legacy_desktop
     needs: verify
     strategy:
       fail-fast: false

@@ -640,8 +640,10 @@ async function api(req, res, url) {
   if (url.pathname === '/api/admin/assistant/review' && req.method === 'POST') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
     if (!assistantKey || !state.settings.assistantEnabled) return json(res, 503, { error: '请先配置 API 密钥并开启 AI 对话' });
-    const review = await performMaintenanceReview(admin);
-    return json(res, review?.status === 'completed' ? 200 : 502, { review, error: review?.status === 'failed' ? review.error : undefined });
+    const result = await scheduler.tick({ id: 'review', manual: true, user: admin });
+    if (!result) return json(res, 409, { error: '已有后台任务正在执行，请稍后重试' });
+    const review = state.assistantReviews.find(row => row.id === result.resultId);
+    return json(res, result.status === 'completed' ? 200 : 502, { review, error: result.error });
   }
   if (url.pathname === '/api/admin/butler' && req.method === 'GET') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
@@ -689,8 +691,10 @@ async function api(req, res, url) {
     appendAudit({ user: admin, action: 'assistant-limit-change', req, detail: target.username }); save(state); return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/admin/health/run' && req.method === 'POST') {
-    if (!requireUser(req, res, 'admin')) return;
-    return json(res, 200, { report: generateReport(state, save, new Date(), true) });
+    const admin = requireUser(req, res, 'admin'); if (!admin) return;
+    const result = await scheduler.tick({ id: 'health', manual: true, user: admin });
+    if (!result) return json(res, 409, { error: '已有后台任务正在执行，请稍后重试' });
+    return json(res, result.status === 'completed' ? 200 : 502, { report: state.healthReports.find(row => row.id === result.resultId), error: result.error });
   }
   if (url.pathname === '/api/feedback/config' && req.method === 'GET') {
     return json(res, 200, { enabled: state.settings.feedbackEnabled !== false, anonymousEnabled: state.settings.feedbackAnonymousEnabled !== false });
@@ -1234,9 +1238,9 @@ const backups = new BackupService({ dataDir, database: getDatabase(), beforeSnap
   while (activeMutations.size) { if (Date.now() > deadline) throw new Error('仍有修改操作进行中，备份稍后重试'); await new Promise(resolve => setTimeout(resolve, 50)); }
 } });
 const scheduler = new JobScheduler({ state, save, model: assistantModel, audit: appendAudit, handlers: {
-  health: { ready: () => true, run: async () => { security.pruneSensitiveRecords(state); const report = generateReport(state, save, new Date(), true); return { summary: report.notes }; } },
+  health: { ready: () => true, run: async () => { security.pruneSensitiveRecords(state); const report = generateReport(state, save, new Date(), true); return { ...report, summary: report.notes }; } },
   backup: { ready: () => true, run: async () => { const result = await backups.create({ source: 'auto', retention: state.settings.backupRetention }); return { summary: `备份已恢复验证，${result.fileCount} 个文件` }; } },
-  review: { ready: () => Boolean(assistantKey && state.settings.assistantEnabled && state.users.some(user => user.active && user.role === 'admin')), run: async ({ manual }) => performMaintenanceReview(state.users.find(user => user.active && user.role === 'admin'), manual ? 'manual' : 'auto') }
+  review: { ready: () => Boolean(assistantKey && state.settings.assistantEnabled && state.users.some(user => user.active && user.role === 'admin')), run: async ({ manual, user }) => performMaintenanceReview(manual && user || state.users.find(user => user.active && user.role === 'admin'), manual ? 'manual' : 'auto') }
 } });
 const operationsApi = createOperationsApi({ state, save, json, body, requireUser, cookies, verifyPassword, hashPassword, appendAudit, scheduler, backups, closeSession: session => {
   closeNotebookSockets(session.userId, session.token);

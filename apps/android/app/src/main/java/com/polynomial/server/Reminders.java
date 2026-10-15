@@ -16,8 +16,8 @@ public final class Reminders extends BroadcastReceiver {
     public Reminders() { activity = null; }
     Reminders(MainActivity activity) { this.activity = activity; }
     private static android.content.SharedPreferences prefs(Context context) { return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
-    private static PendingIntent pending(Context context, String id, String title, int flags) {
-        Intent intent = new Intent(context, Reminders.class).setData(Uri.parse("polynomial://planner/" + id)).putExtra("title", title).putExtra("id", id);
+    private static PendingIntent pending(Context context, String id, String title, int flags, long due) {
+        Intent intent = new Intent(context, Reminders.class).setData(Uri.parse("polynomial://planner/" + id)).putExtra("title", title).putExtra("id", id).putExtra("due", due);
         return PendingIntent.getBroadcast(context, 0, intent, flags | PendingIntent.FLAG_IMMUTABLE);
     }
     private static void channel(Context context) {
@@ -30,7 +30,7 @@ public final class Reminders extends BroadcastReceiver {
             JSONObject row = tasks.optJSONObject(i); if (row == null) continue;
             String id = row.optString("id");
             if (!id.matches("[a-f0-9-]{36}")) continue;
-            PendingIntent existing = pending(context, id, "", PendingIntent.FLAG_NO_CREATE);
+            PendingIntent existing = pending(context, id, "", PendingIntent.FLAG_NO_CREATE, 0);
             if (existing != null) { alarms.cancel(existing); existing.cancel(); }
         }
     }
@@ -46,8 +46,10 @@ public final class Reminders extends BroadcastReceiver {
             if (!id.matches("[a-f0-9-]{36}") || title.isEmpty() || title.length() > 120) continue;
             long due;
             try { due = java.time.Instant.parse(row.optString("dueAt")).toEpochMilli(); } catch (Exception ignored) { continue; }
-            if (due <= System.currentTimeMillis()) continue;
-            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, due, pending(context, id, title, PendingIntent.FLAG_UPDATE_CURRENT));
+            long now = System.currentTimeMillis();
+            String sentKey = "sent:" + prefs(context).getString("userId", "") + ":" + id + ":" + due;
+            if (now - due > 86400000L || prefs(context).contains(sentKey)) continue;
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Math.max(due, now + 1000), pending(context, id, title, PendingIntent.FLAG_UPDATE_CURRENT, due));
         }
     }
     private static boolean permitted(Context context) {
@@ -70,9 +72,11 @@ public final class Reminders extends BroadcastReceiver {
             if (!userId.matches("[a-f0-9-]{36}") || tasks == null || tasks.length() > 100) return;
             if (requested && !permitted(activity)) activity.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 202);
             if (!requested && !prefs(activity).getBoolean("enabled", false)) return;
-            if (!requested && userId.equals(prefs(activity).getString("userId", "")) && tasks.toString().equals(prefs(activity).getString("items", ""))) return;
+            if (!requested && BuildConfig.VERSION_NAME.equals(prefs(activity).getString("version", "")) && userId.equals(prefs(activity).getString("userId", "")) && tasks.toString().equals(prefs(activity).getString("items", ""))) return;
             cancel(activity, saved(activity));
-            prefs(activity).edit().putString("userId", userId).putString("items", tasks.toString()).putBoolean("enabled", true).apply();
+            android.content.SharedPreferences.Editor editor = prefs(activity).edit().putString("userId", userId).putString("items", tasks.toString()).putString("version", BuildConfig.VERSION_NAME).putBoolean("enabled", true);
+            for (java.util.Map.Entry<String, ?> entry : prefs(activity).getAll().entrySet()) if (entry.getKey().startsWith("sent:") && entry.getValue() instanceof Long && System.currentTimeMillis() - (Long) entry.getValue() > 30L * 86400000L) editor.remove(entry.getKey());
+            editor.apply();
             if (permitted(activity)) schedule(activity, tasks);
         } catch (Exception ignored) {}
     }
@@ -90,17 +94,20 @@ public final class Reminders extends BroadcastReceiver {
     }
     static void permissionResult(Context context) { if (permitted(context) && prefs(context).getBoolean("enabled", false)) schedule(context, saved(context)); }
     @Override public void onReceive(Context context, Intent intent) {
-        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) { if (prefs(context).getBoolean("enabled", false) && permitted(context)) schedule(context, saved(context)); return; }
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) { if (prefs(context).getBoolean("enabled", false) && permitted(context)) schedule(context, saved(context)); return; }
         if (!permitted(context) || !prefs(context).getBoolean("enabled", false)) return;
         String id = intent.getStringExtra("id");
         if (id == null || !id.matches("[a-f0-9-]{36}")) return;
-        boolean current = false; JSONArray tasks = saved(context);
-        for (int i = 0; i < tasks.length(); i++) { JSONObject row = tasks.optJSONObject(i); if (row != null && id.equals(row.optString("id"))) { current = true; break; } }
-        if (!current) return;
+        long due = 0; JSONArray tasks = saved(context);
+        for (int i = 0; i < tasks.length(); i++) { JSONObject row = tasks.optJSONObject(i); if (row != null && id.equals(row.optString("id"))) { try { due = java.time.Instant.parse(row.optString("dueAt")).toEpochMilli(); } catch (Exception ignored) {} break; } }
+        long now = System.currentTimeMillis();
+        String sentKey = "sent:" + prefs(context).getString("userId", "") + ":" + id + ":" + due;
+        if (due <= 0 || due > now || now - due > 86400000L || (intent.getLongExtra("due", 0) != 0 && intent.getLongExtra("due", 0) != due) || prefs(context).contains(sentKey)) return;
         channel(context);
         Intent open = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent tap = PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification notification = new Notification.Builder(context, CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle("日程提醒").setContentText(intent.getStringExtra("title")).setAutoCancel(true).setContentIntent(tap).build();
         ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE)).notify(id.hashCode(), notification);
+        prefs(context).edit().putLong(sentKey, now).apply();
     }
 }
