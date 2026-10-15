@@ -48,7 +48,7 @@ test('member and guest tool regions expose only their allowed controls',async({p
 });
 test('signed-out login, recovery, offline and legacy routes keep working without admin links',async({page},info)=>{
  const inventory=[];for(const route of ['/index.html','/login.html','/recover-password.html','/offline.html','/python.html','/privacy.html']){
-  const response=await page.goto(route);expect(response.status(),route).toBeLessThan(400);await expect(page.locator('main').first()).toBeVisible();await page.setViewportSize({width:360,height:800});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),route).toBe(true);
+  const response=await page.goto(route);expect(response.status(),route).toBeLessThan(400);if(route==='/python.html')await page.waitForURL(url=>url.pathname==='/login.html');await expect(page.locator('main').first()).toBeVisible();await page.setViewportSize({width:360,height:800});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),route).toBe(true);
   await expect(page.locator('a[href="/admin.html"]:visible')).toHaveCount(0);inventory.push({route,finalPath:new URL(page.url()).pathname,title:await page.title()});
  }
  await page.goto('/login.html');await expect(page.locator('h1')).toHaveText('登录账号');await page.locator('a[href="/recover-password.html"]').click();await expect(page.locator('#recoveryForm')).toBeVisible();
@@ -59,4 +59,9 @@ test('installer HEAD reports the same bytes and the optional verified mirror sta
  const mirror='https://github.com/polynomial1027/polynomial-home/releases/download/client-v0.3.12/Polynomial-0.3.12-android-universal.apk';
  await page.route('**/api/downloads',async route=>{const original=await route.fetch(),body=await original.json();body.resources.forEach(row=>{row.mirrorUrl=mirror;});await route.fulfill({response:original,json:body});});
  await page.goto('/download.html?platform=mac');await expect(page.getByRole('link',{name:'GitHub 备用下载 ↗'}).first()).toHaveAttribute('href',mirror);await expect(page.locator('[data-download-resource]').first()).toBeEnabled();
+});
+test('sign-in returns to the original chat and rejects a backslash external destination',async({page})=>{
+ await page.goto('/chat.html#room=lobby');await page.waitForURL(url=>url.pathname==='/login.html');expect(new URL(page.url()).searchParams.get('next')).toBe('/chat.html#room=lobby');
+ await page.locator('#username').fill('fixturemember');await page.locator('#password').fill('fixture-member-password');await page.locator('#loginForm button').click();await expect(page.locator('#messageInput')).toBeEnabled();expect(new URL(page.url()).pathname).toBe('/chat.html');
+ await page.request.post('/api/logout');await page.goto('/login.html?next='+encodeURIComponent('/\\evil.example'));await page.locator('#username').fill('fixturemember');await page.locator('#password').fill('fixture-member-password');await page.locator('#loginForm button').click();await page.waitForURL(url=>url.pathname==='/app.html');expect(new URL(page.url()).origin).toBe('http://127.0.0.1:3190');
 });

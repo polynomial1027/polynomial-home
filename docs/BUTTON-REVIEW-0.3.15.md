@@ -5,8 +5,8 @@
 ## 结果
 
 - 本报告汇总浏览器场景；后端与静态检查结果请查看同次运行的 npm test / npm run check 日志。
-- 浏览器：36 项场景通过。
-- 自动记录 307 次点击，涉及 12 个页面路径。次数包括重复操作、链接和折叠区，不代表每种隐藏状态均已穷举。双账号测试的额外浏览器上下文没有全部计入该点击计数。
+- 浏览器：37 项场景通过。
+- 自动记录 309 次点击，涉及 12 个页面路径。次数包括重复操作、链接和折叠区，不代表每种隐藏状态均已穷举。双账号测试的额外浏览器上下文没有全部计入该点击计数。
 - 模型使用隔离进程预加载的模拟响应；真实 DeepSeek 网络请求被拦截，不使用真实密钥、不消耗真实额度。
 
 ## 点击记录分布
@@ -23,7 +23,7 @@
 | /games/go.html | 22 |
 | /games/match3.html | 5 |
 | /learning.html | 14 |
-| /login.html | 36 |
+| /login.html | 38 |
 | /workspace.html | 11 |
 
 ## 场景
@@ -63,6 +63,7 @@
 - 通过：member and guest tool regions expose only their allowed controls
 - 通过：private chat has clean labels and one accessible data policy instead of repeated banners
 - 通过：release sweep checks every page, local destinations, assets, controls and mobile regions
+- 通过：sign-in returns to the original chat and rejects a backslash external destination
 - 通过：signed-out login, recovery, offline and legacy routes keep working without admin links
 
 ## 本轮变更
