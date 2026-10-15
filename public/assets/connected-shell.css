@@ -39,3 +39,5 @@ body[data-connected=true] .assistant-thread .empty-state{color:var(--muted)}
 body[data-connected=true] .page-title{padding:28px 0 24px}
 body[data-connected=true] .page-title h1{font-size:clamp(30px,4vw,44px);line-height:1.2;margin:12px 0}
 body[data-connected=true] .assistant-usage strong{color:var(--accent)}
+
+body[data-connected=true][data-theme=dark]{color-scheme:dark}body[data-connected=true][data-theme=light]{color-scheme:light}

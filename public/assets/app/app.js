@@ -44,13 +44,14 @@
   ];
   const permitted = key => !key || data?.user.role === 'admin' || data?.user.permissions?.[key] === true;
   const tools = () => [...toolDefinitions.filter(([key]) => permitted(key)), ...(data?.user.role === 'admin' ? [[null, 'shield', '服务器管理', '账号、巡检与用量', '#control']] : [])];
+  const personalSpace = window.createPersonalSpace({ getData: () => data, isOffline: () => offline, tools, icon, api, refresh, notice });
   function notice(message, kind = 'success') { clearTimeout(noticeTimer); $('#appNotice').hidden = !message; $('#appNotice').textContent = message || ''; $('#appNotice').dataset.kind = kind; if (message && kind !== 'error') noticeTimer = setTimeout(() => { $('#appNotice').hidden = true; }, 5000); }
   async function api(url, options = {}) {
     if (offline && options.method && options.method !== 'GET') throw new Error('离线日程为只读，请连接服务器后修改');
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), !options.method || options.method === 'GET' ? 15000 : 120000);
     let response; try { response = await fetch(url, { ...options, signal: options.signal || controller.signal, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options.headers } }); } catch (error) { error.network = true; throw error; } finally { clearTimeout(timeout); }
     const result = await response.json();
-    if (!response.ok) { if (response.status === 401) { window.PolynomialCalendarCache?.clear(); window.__TAURI__?.core?.invoke('clear_reminders').catch(() => {}); location.href = '/login.html?next=%2Fapp.html'; } throw new Error(result.error || '操作失败，请重试'); }
+    if (!response.ok) { if (response.status === 401) { window.PolynomialCalendarCache?.clear(); window.__TAURI__?.core?.invoke('clear_reminders').catch(() => {}); location.href = '/login.html?next=' + encodeURIComponent('/app.html' + location.hash); } throw new Error(result.error || '操作失败，请重试'); }
     return result;
   }
   const action = (fn, prevent = true) => async event => { if (prevent) event?.preventDefault(); try { await fn(event); } catch (error) { notice(error.message, 'error'); } };
@@ -76,6 +77,7 @@
     document.querySelectorAll('.app-nav [data-page]').forEach(link => { const current = link.dataset.page === page; link.classList.toggle('active', current); if (current) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); });
     $('#currentPage').textContent = pageNames[page]; document.title = `${pageNames[page]} · Polynomial`;
     const changed = page !== activePage;
+    if (changed) for (const id of ['chatHistoryDialog', 'spaceSettingsDialog']) { const dialog = $(`#${id}`); if (dialog.open) dialog.close(); }
     if (scroll && changed) window.scrollTo({ top: 0 }); activePage = page; document.body.dataset.page = page;
     if (page === 'assistant') { updateDraft(); if (changed) requestAnimationFrame(() => { $('#appChatThread').scrollTop = $('#appChatThread').scrollHeight; }); }
   }
@@ -119,8 +121,7 @@
     $('#nextTaskTime').textContent = upcoming ? new Date(upcoming.dueAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' }) : '留一点空白';
     $('#nextTaskTitle').textContent = upcoming?.title || '暂时没有定时安排';
     $('#nextTaskDate').textContent = upcoming ? `${day(upcoming.dueAt) === today ? '今天' : time(upcoming.dueAt).split(' ')[0]} · ${upcoming.source === 'assistant' ? 'AI 为你安排' : '你的个人计划'}` : '从一件小事开始，给想法一个时间。';
-    const toolHtml = entry => { const [, symbol, title, description, href] = entry; return `<a class="tool-tile" href="${href}"><span data-icon="${symbol}">${icon(symbol)}</span><div><strong>${title}</strong><small>${description}</small></div><span class="tool-arrow">↗</span></a>`; };
-    $('#quickTools').innerHTML = tools().slice(0, 4).map(toolHtml).join(''); $('#allTools').innerHTML = tools().map(toolHtml).join('');
+    personalSpace.render();
     const overdue = data.planner.filter(item => !item.done && item.scheduled !== false && item.dueAt && Date.parse(item.dueAt) < Date.now() && day(item.dueAt) !== today);
     const failedQueue = data.assistant.queue.filter(item => item.status === 'failed');
     const pendingActions = butler?.actions?.filter(item => item.status === 'pending') || [];

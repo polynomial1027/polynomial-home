@@ -3,7 +3,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const time = value => value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hourCycle: 'h23' }) : '暂无';
   const states = { idle: '等待执行', running: '正在执行', completed: '已完成', failed: '执行失败', retrying: '等待重试', interrupted: '中断 · 待核对', skipped: '已跳过本次' };
-  let currentUser, operations, loading = false, lastRefresh = 0;
+  let currentUser, snapshot, operations, loading = false, lastRefresh = 0;
   async function api(url, method = 'GET', body) {
     const response = await fetch(url, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || '操作失败'); return result;
@@ -29,6 +29,17 @@
     const backupState = operations.backups.length ? `最近备份 ${time(operations.backups[0].createdAt)}` : '暂无备份，请先创建一份或启用自动备份';
     $('#homeOperations').innerHTML = `<div><strong>${headline}</strong><p class="muted">${failed.length ? failed.map(job => esc(job.title)).join('、') : `${backupState} · ${enabled.length} 项自动任务已启用`}</p></div><a href="#control" class="text-link">查看执行记录 ↗</a>`;
     $('#pendingOperationsCount').textContent = failed.length;
+    const report = snapshot?.admin?.reports?.[0] || snapshot?.data.health?.[0], disk = report?.disk;
+    const backup = operations.backups[0], next = enabled.filter(job => job.status !== 'running').sort((a, b) => Date.parse(a.nextAttemptAt || a.nextRunAt) - Date.parse(b.nextAttemptAt || b.nextRunAt))[0];
+    const ai = snapshot?.admin, used = Number(ai?.usage?.dailyTokens || 0), limit = Number(ai?.settings?.assistantDailyTokens || 0);
+    const remaining = disk && disk.totalGB > 0 ? Math.max(0, Math.min(100, Math.round(disk.freeGB / disk.totalGB * 100))) : null;
+    const card = (title, value, detail, warning = false, percent = null) => `<article class="control-metric ${warning ? 'needs-attention' : ''}"><small>${title}</small><strong>${esc(value)}</strong>${percent === null ? '' : `<meter min="0" max="100" value="${percent}" aria-label="${title}">${percent}%</meter>`}<p>${esc(detail)}</p></article>`;
+    $('#controlOverview').innerHTML = [
+      card('数据盘剩余', disk ? `${disk.freeGB} / ${disk.totalGB} GB` : '尚无检查数据', `检查时间 ${time(report?.createdAt)}；报告数据不是实时采样`, remaining !== null && remaining < 10, remaining),
+      card('最近备份', backup ? backup.verifiedAt ? '已验证恢复' : '尚未验证' : '暂无备份', backup ? time(backup.createdAt) : '创建备份或开启低峰自动备份', !backup || !backup.verifiedAt || Date.now() - Date.parse(backup.createdAt) > 48 * 3600000),
+      card('自动任务', headline, next ? `${next.title} · ${Date.parse(next.nextAttemptAt || next.nextRunAt) <= Date.now() ? '等待低峰补执行' : '计划于 ' + time(next.nextAttemptAt || next.nextRunAt)}` : '暂无待执行的自动任务', failed.length > 0),
+      card('今日 AI Token', ai ? `${used.toLocaleString()} / ${limit.toLocaleString()}` : '待同步', ai?.configured && ai?.settings?.assistantEnabled ? '全站额度；详细调用与费用见下方记录' : 'AI 服务尚未启用或未配置密钥', limit > 0 && used >= limit * 0.9)
+    ].join('');
   }
   async function refreshOperations(force = false) {
     if (currentUser?.role !== 'admin' || loading || !force && Date.now() - lastRefresh < 30000) return;
@@ -48,7 +59,8 @@
     $('#securityPasswordHint').textContent = `新密码至少 ${security.passwordMinimum} 位。保存后退出其他设备。`;
   }
   document.addEventListener('polynomial-snapshot', event => {
-    currentUser = event.detail.data.user;
+    currentUser = event.detail.data.user; snapshot = event.detail;
+    if (currentUser.role === 'admin') renderOperations();
     if (event.detail.offline) { $('#accountSecurity').hidden = true; return; }
     $('#accountSecurity').hidden = false;
     refreshOperations();

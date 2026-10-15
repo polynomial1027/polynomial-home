@@ -5,6 +5,7 @@ process.env.POLYNOMIAL_DATA_DIR = directory; process.env.ADMIN_USERNAME = 'fixtu
 const store = require('../../lib/store'), state = store.load();
 state.settings.automaticBackup = false;
 state.users.push(store.normalizeUser({ id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', username: 'fixturemember', displayName: '测试成员', role: 'member', active: true, passwordHash: store.hashPassword('fixture-member-password'), createdAt: new Date().toISOString() }));
+state.assistantChats.push({ userId: state.users[0].id, role: 'assistant', content: 'admin-private-history-sentinel', at: new Date().toISOString() }, ...Array.from({ length: 25 }, (_, index) => ({ userId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', role: index % 2 ? 'assistant' : 'user', content: `member-history-${index} 安排`, at: new Date(Date.now() + index).toISOString() })));
 const fileId = 'cccccccc-cccc-cccc-cccc-cccccccccccc', bytes = Buffer.from('fixture installer bytes for integrity verification');
 fs.mkdirSync(path.join(directory, 'drive')); fs.writeFileSync(path.join(directory, 'drive', fileId), bytes);
 state.driveFiles.push({ id: fileId, storedName: fileId, originalName: 'Polynomial-0.3.8-mac-x64.dmg', scope: 'public', size: bytes.length, ownerId: state.users[0].id });

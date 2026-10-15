@@ -121,3 +121,54 @@ test('download can be tracked and cancelled after changing filters and categorie
     await page.locator('[data-category="client"]').click(); await expect(page.locator('[data-download-resource]').first()).toBeEnabled();
   } finally { release(); }
 });
+
+test('personal home syncs across devices, keeps favorite order and detects a stale save', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 390, height: 844 }); await login(page, true); await page.locator('#customizeSpace').click();
+  await expect(page.getByRole('button', { name: '保存首页', exact: true })).toBeInViewport();
+  for (const id of ['drive', 'chat', 'learning', 'calendar']) { const input = page.locator(`[data-space-favorite="${id}"]`); if (await input.count()) await input.uncheck(); }
+  await page.locator('[data-space-favorite="downloads"]').check(); await page.locator('[data-space-favorite="calendar"]').check();
+  await page.locator('[data-space-widget="welcome"]').uncheck(); await page.getByRole('button', { name: '保存首页', exact: true }).click();
+  await expect(page.locator('#spaceSettingsDialog')).toBeHidden(); await expect(page.locator('[data-home-widget="welcome"]')).toBeHidden();
+  await expect(page.locator('#quickTools a').first()).toHaveAttribute('href', '/download.html');
+  await page.reload(); await expect(page.locator('[data-home-widget="welcome"]')).toBeHidden();
+  const otherContext = await browser.newContext({ baseURL: 'http://127.0.0.1:3190' });
+  try {
+    const other = await otherContext.newPage(); await login(other, true);
+    await expect(other.locator('#quickTools a').first()).toHaveAttribute('href', '/download.html');
+    await page.locator('#customizeSpace').click();
+    const current = (await (await other.request.get('/api/account/workspace-preferences')).json()).preferences;
+    expect((await other.request.patch('/api/account/workspace-preferences', { data: { favorites: ['calendar'], hiddenWidgets: [], ifUnmodifiedSince: current.updatedAt } })).status()).toBe(200);
+    await page.getByRole('button', { name: '保存首页', exact: true }).click(); await expect(page.locator('#spaceSettingsError')).toContainText('其他设备');
+    await page.locator('#reloadSpaceSettings').click(); await expect(page.locator('[data-space-widget="welcome"]')).toBeChecked();
+    await page.locator('[data-close-dialog="spaceSettingsDialog"]').click();
+    const latest = (await (await page.request.get('/api/account/workspace-preferences')).json()).preferences;
+    expect((await page.request.patch('/api/account/workspace-preferences', { data: { favorites: ['control'], hiddenWidgets: [], ifUnmodifiedSince: latest.updatedAt } })).status()).toBe(400);
+    await page.goto('/app.html#tools'); await page.locator('#toolSearch').fill('日历'); await expect(page.locator('#allTools .tool-entry')).toHaveCount(1);
+    await expect(page.locator('#allTools')).not.toContainText('服务器管理');
+  } finally { await otherContext.close(); }
+});
+
+test('own history is searchable and paginated without AI calls or admin content', async ({ page }) => {
+  await login(page, true); await page.goto('/app.html#assistant'); await page.locator('#openChatHistory').click();
+  await expect(page.locator('#historyResults .history-message')).toHaveCount(20); await page.locator('#historyNext').click(); await expect(page.locator('#historyResults .history-message')).toHaveCount(5);
+  await page.locator('#historyQuery').fill('member-history-24'); await page.locator('#historySearchForm button').click();
+  await expect(page.locator('#historyResults .history-message')).toHaveCount(1); await expect(page.locator('#historyResults')).toContainText('member-history-24');
+  await page.locator('#historyQuery').fill('admin-private'); await page.locator('#historySearchForm button').click(); await expect(page.locator('#historyStatus')).toContainText('0 条记录');
+  const response = await page.request.get('/api/account/assistant-history?userId=someone-else'); const result = await response.json();
+  expect(result.total).toBe(25); expect(result.messages.every(row => !row.userId && !row.usageRecordId)).toBe(true);
+  await page.setViewportSize({ width: 360, height: 800 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+
+test('public home exposes installation and preserves a calendar destination through login', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 }); await page.goto('/');
+  await expect(page.locator('body')).toHaveAttribute('data-connected', 'true');
+  await expect(page.locator('.landing-actions a[href="/download.html"]')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await page.request.get('/api/account/assistant-history')).status()).toBe(401);
+  expect((await page.request.get('/api/account/workspace-preferences')).status()).toBe(401);
+  await page.locator('.landing-apps a[href="/app.html#calendar"]').click(); await page.waitForURL('**/login.html?next=*');
+  expect(new URL(page.url()).searchParams.get('next')).toBe('/app.html#calendar');
+  await page.locator('#username').fill('fixturemember'); await page.locator('#password').fill('fixture-member-password'); await page.locator('#loginForm button').click();
+  await expect(page.locator('#appCalendar')).toBeVisible(); expect(new URL(page.url()).hash).toBe('#calendar');
+});

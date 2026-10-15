@@ -1,5 +1,5 @@
 (() => {
-  if (!['/workspace.html', '/admin.html', '/download.html', '/ai-records.html'].includes(location.pathname)) return;
+  if (!['/', '/index.html', '/workspace.html', '/admin.html', '/download.html', '/ai-records.html'].includes(location.pathname)) return;
   document.body.dataset.connected = 'true';
   const style = document.createElement('link'); style.rel = 'stylesheet'; style.href = '/assets/connected-shell.css'; document.head.append(style);
   function apply() {
