@@ -47,7 +47,7 @@ window.createAiWorkspace = ({ getData, isOffline, isSending, api, refresh, notic
   $('#newAiSession').onclick = action(() => create()); $('#aiSessionSearch').oninput = renderList; $('#aiShowArchived').onchange = renderList;
   $('#aiSessionList').onclick = action(event => { const row = event.target.closest('[data-ai-session]'); if (row) return select(row.dataset.aiSession); });
   function renderTools() {
-    const data = getData(); $('#aiToolCatalog').innerHTML = (data.ai?.tools || []).map(row => `<button type="button" class="ai-tool-card" data-use-ai-tool="${row.id}"><strong>${esc(row.title)}</strong><small>${esc(row.description)}</small></button>`).join('');
+    const data = getData(); $('#aiTemplateForm').hidden=data.user.role==='guest';$('#aiTemplateList').hidden=data.user.role==='guest'; $('#aiToolCatalog').innerHTML = (data.ai?.tools || []).map(row => `<button type="button" class="ai-tool-card" data-use-ai-tool="${row.id}"><strong>${esc(row.title)}</strong><small>${esc(row.description)}</small></button>`).join('');
     $('#aiTemplateList').innerHTML = (data.ai?.templates || []).map(row => `<div class="ai-template-row"><strong>${esc(row.title)}</strong><div><button type="button" class="secondary small" data-use-ai-template="${row.id}">使用</button><button type="button" class="text-button" data-edit-ai-template="${row.id}">编辑</button><button type="button" class="text-button" data-delete-ai-template="${row.id}">删除</button></div></div>`).join('') || '<p class="fine-print">保存常用指令，下次直接创建专用会话。已有会话保留创建时的模板内容。</p>';
   }
   $('#openAiTools').onclick = () => { renderTools(); $('#aiToolsDialog').showModal(); };

@@ -27,5 +27,5 @@ jobs:
           path: |
             playwright-report/
             test-results/**/button-actions.json
-            docs/BUTTON-REVIEW-0.3.13.md
+            docs/BUTTON-REVIEW-*.md
           retention-days: 7

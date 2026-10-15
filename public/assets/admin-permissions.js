@@ -10,15 +10,16 @@ const ae = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&':
 function fillUserAccessFields(user) {
   if (!user) return;
   const quota = Number(user.driveQuotaMB);
+  document.querySelector('#editDriveQuotaMB').max=user.role==='guest'?'32':'';
   document.querySelector('#editDriveQuotaMB').value = Number.isSafeInteger(quota) && quota >= 0 ? String(quota) : '1024';
   document.querySelectorAll('[data-permission]').forEach(input => {
     input.checked = user.role === 'admin' || user.permissions?.[input.dataset.permission] === true;
-    input.disabled = user.role === 'admin';
+    input.disabled = user.role === 'admin' || user.role==='guest'&&window.guestAccountPolicy?.permissions?.[input.dataset.permission]!==true;
   });
 }
 
 async function refreshAndFillUser(userId) {
-  permissionUsers = (await request('/api/users')).users;
+  const result=await request('/api/users');permissionUsers=result.users;window.guestAccountPolicy=result.guestPolicy;
   fillUserAccessFields(permissionUsers.find(user => user.id === userId));
 }
 
@@ -33,12 +34,9 @@ async function initPermissionAdmin() {
     });
   }, true);
   document.querySelector('#editRole').addEventListener('change', () => {
-    const user = permissionUsers.find(item => item.id === document.querySelector('#editUserId').value);
-    document.querySelectorAll('[data-permission]').forEach(input => {
-      input.disabled = document.querySelector('#editRole').value === 'admin';
-      if (input.disabled) input.checked = true;
-      else if (user) input.checked = user.permissions?.[input.dataset.permission] === true;
-    });
+    const user = permissionUsers.find(item => item.id === document.querySelector('#editUserId').value),role=document.querySelector('#editRole').value,guest=window.guestAccountPolicy;
+    document.querySelectorAll('[data-permission]').forEach(input=>{const key=input.dataset.permission;input.disabled=role==='admin'||role==='guest'&&guest?.permissions?.[key]!==true;input.checked=role==='admin'||(role==='guest'?guest?.permissions?.[key]===true:user?.permissions?.[key]===true);});
+    const quota=document.querySelector('#editDriveQuotaMB');quota.max=role==='guest'?'32':'';if(role==='guest')quota.value=String(Math.min(32,Number(quota.value)||32));
   });
   document.querySelector('#editUserForm').addEventListener('submit', savePermissions, true);
   await reloadPermissionUsers();
@@ -62,7 +60,7 @@ async function initPermissionAdmin() {
 }
 
 async function reloadPermissionUsers() {
-  permissionUsers = (await request('/api/users')).users;
+  const result=await request('/api/users');permissionUsers=result.users;window.guestAccountPolicy=result.guestPolicy;
 }
 
 async function savePermissions(event) {

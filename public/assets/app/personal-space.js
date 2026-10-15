@@ -1,8 +1,8 @@
 window.createPersonalSpace = ({ getData, isOffline, tools, icon, api, refresh, notice }) => {
   const $ = selector => document.querySelector(selector);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const ids = { '#assistant': 'assistant', '/drive.html': 'drive', '/chat.html': 'chat', '/learning.html': 'learning', '#calendar': 'calendar', '/games.html': 'games', '/download.html': 'downloads', '/workspace.html': 'advanced', '#control': 'control' };
-  const groups = { assistant: '日常工作', drive: '日常工作', chat: '日常工作', calendar: '日常工作', learning: '学习与探索', games: '学习与探索', downloads: '资源与设置', advanced: '资源与设置', control: '资源与设置' };
+  const ids = { '#assistant': 'assistant', '/drive.html': 'drive', '/chat.html': 'chat', '/learning.html': 'learning', '#calendar': 'calendar', '/games.html': 'games', '/download.html': 'downloads', '/genshin-calculator/':'calculator', '/workspace.html': 'advanced', '#control': 'control' };
+  const groups = { assistant: '日常工作', drive: '日常工作', chat: '日常工作', calendar: '日常工作', learning: '学习与探索', games: '学习与探索', calculator:'学习与探索', downloads: '资源与设置', advanced: '资源与设置', control: '资源与设置' };
   const widgetLabels = { welcome: '欢迎与下一项安排', today: '今天的安排', brief: '每日回顾', tools: '我的收藏入口' };
   let draft, historyPage = 1, historyRows = [], historySequence = 0;
   const entries = () => tools().map(entry => ({ entry, id: ids[entry[4]], group: groups[ids[entry[4]]] }));

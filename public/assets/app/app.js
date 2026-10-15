@@ -40,11 +40,12 @@
     ['accessLearning', 'book', '网络学习', '课程、实验与学习进度', '/learning.html'],
     ['accessPlanner', 'calendar', '计划与日历', '安排每一天，按时提醒', '#calendar'],
     ['accessGames', 'game', '小游戏', '围棋与休闲空间', '/games.html'],
+    [null, 'grid', '原神计算器', '独立计算工具', '/genshin-calculator/'],
     [null, 'download', '资源下载', '安装包、版本与共享资料', '/download.html'],
     [null, 'home', '高级设置与报告', '完整参数与历史报告', '/workspace.html']
   ];
   const permitted = key => !key || data?.user.role === 'admin' || data?.user.permissions?.[key] === true;
-  const tools = () => [...toolDefinitions.filter(([key]) => permitted(key)), ...(data?.user.role === 'admin' ? [[null, 'shield', '服务器管理', '账号、巡检与用量', '#control']] : [])];
+  const tools = () => [...toolDefinitions.filter(([key]) => permitted(key)), ...(data?.user.role === 'admin' ? [[null, 'shield', '服务器管理', '账号、巡检与用量', '#control']] : [])].map(entry=>{if(data?.user.role!=='guest')return entry;if(entry[4]==='/drive.html')return [...entry.slice(0,2),'私人小云盘','仅本人使用，不对外分享',entry[4]];if(entry[4]==='/games.html')return [...entry.slice(0,2),'休闲小游戏','独立体验，不开放围棋',entry[4]];return entry;});
   const aiWorkspace = window.createAiWorkspace({ getData: () => data, isOffline: () => offline, isSending: () => busy, api, refresh, notice, rerender: () => renderChat() });
   const personalSpace = window.createPersonalSpace({ getData: () => data, isOffline: () => offline, tools, icon, api, refresh, notice });
   function notice(message, kind = 'success') { clearTimeout(noticeTimer); $('#appNotice').hidden = !message; $('#appNotice').textContent = message || ''; $('#appNotice').dataset.kind = kind; if (message && kind !== 'error') noticeTimer = setTimeout(() => { $('#appNotice').hidden = true; }, 5000); }
@@ -178,8 +179,12 @@
     const user = data.user;
     $('#userName').textContent = user.displayName; $('#accountButton').textContent = user.displayName.slice(0, 1); $('#accountAvatar').textContent = user.profile?.emoji || user.displayName.slice(0, 1);
     for(const selector of ['#accountButton','#accountAvatar']){const node=$(selector);if(user.profile?.avatarUrl){node.innerHTML=`<img class="profile-picture" src="${esc(user.profile.avatarUrl)}" alt="">`;}node.classList.remove('profile-color-jade','profile-color-blue','profile-color-violet','profile-color-rose','profile-color-amber');node.classList.add(`profile-color-${user.profile?.color||'jade'}`);}
-    $('#accountName').textContent = user.displayName; $('#accountRole').textContent = user.role === 'admin' ? `管理员 · @${user.username}` : `成员 · @${user.username}`; $('#serverAddress').textContent = location.origin;
+    $('#accountName').textContent = user.displayName; $('#accountRole').textContent = user.role === 'admin' ? `管理员 · @${user.username}` : `${user.role==='guest'?'访客':'成员'} · @${user.username}`; $('#serverAddress').textContent = location.origin;
     document.querySelectorAll('.admin-only').forEach(node => { node.hidden = user.role !== 'admin'; });
+    document.querySelectorAll('a[href="/chat.html"]').forEach(node=>{node.hidden=!permitted('accessChat');});
+    $('#guestPolicyNotice').hidden=user.role!=='guest';
+    if(data.guestTrial){const trial=data.guestTrial;$('#guestPolicyNotice').textContent=`访客个人体验区 · 今日 AI 剩余 ${Math.max(0,trial.limits.dailyRequests-trial.usage.dailyRequests)}/${trial.limits.dailyRequests} 次 · 私人云盘 ${trial.driveMB} MB。聊天、围棋、公共云盘和对外分享不开放。`;}
+    for(const name of ['messageNotifications','messagePreview','messageSound'])$('#profileForm').elements.namedItem(name).closest('label').hidden=user.role==='guest';$('#enableMessageNotifications').hidden=user.role==='guest';
     document.querySelectorAll('.planner-only').forEach(node => { node.hidden = !permitted('accessPlanner'); });
     renderHome(); renderCalendar(); renderChat(); renderAdmin(); route(false); $('#appContent').setAttribute('aria-busy', 'false');
     $('#offlineCalendar').checked = window.PolynomialCalendarCache?.enabled();

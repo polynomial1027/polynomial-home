@@ -23,6 +23,7 @@ const aiRecords = require('./lib/ai-records');
 const chatService = require('./lib/chat-service');
 const plannerService = require('./lib/planner');
 const reminders = require('./lib/reminders');
+const accountPolicy = require('./lib/account-policy');
 const profiles = require('./lib/profiles'), messaging = require('./lib/messaging');
 const webpush = require('web-push');
 const adminButler = require('./lib/admin-butler');
@@ -147,7 +148,7 @@ const currentUser = req => {
   return session ? state.users.find(u => u.id === session.userId && u.active) : null;
 };
 const publicUser = u => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role, active: u.active, permissions: u.permissions, profile: profiles.view(u), driveQuotaMB: u.driveQuotaMB, createdAt: u.createdAt });
-const allowed = (user, permission) => user?.role === 'admin' || user?.permissions?.[permission] === true;
+const allowed = accountPolicy.allowed;
 const denyUnless = (res, user, permission, message = '此账号未开放该功能') => { if (allowed(user, permission)) return true; json(res, 403, { error: message }); return false; };
 const goWss = new WebSocketServer({ noServer: true });
 const broadcastGo = (data, targetIds = null) => {
@@ -293,7 +294,7 @@ const safeFileName = name => path.basename(repairFileNameEncoding(name)).replace
 const removeStoredFile = file => { try { fs.unlinkSync(path.join(uploadDir, file.storedName)); } catch {} };
 const removeDriveFile = file => { try { fs.unlinkSync(path.join(driveDir, file.storedName)); } catch {} };
 const driveUsed = userId => state.driveFiles.filter(file => file.ownerId === userId && file.scope === 'private').reduce((sum, file) => sum + Number(file.size || 0), 0);
-const canReadDriveFile = (user, file) => user.role === 'admin' || file.ownerId === user.id || (file.scope === 'public' && allowed(user, 'viewPublicDrive') && allowed(user, 'downloadPublicDrive')) || state.driveShares.some(share => share.fileId === file.id && share.recipientId === user.id);
+const canReadDriveFile = (user, file) => accountPolicy.isGuest(user) ? file.ownerId===user.id&&file.scope==='private' : user.role === 'admin' || (state.users.find(u=>u.id===file.ownerId)?.role!=='guest' && (file.ownerId === user.id || (file.scope === 'public' && allowed(user, 'viewPublicDrive') && allowed(user, 'downloadPublicDrive')) || state.driveShares.some(share => share.fileId === file.id && share.recipientId === user.id)));
 const filterSensitiveText = text => {
   let value = String(text || '');
   if (state.settings.sensitiveWordSource === 'default' && defaultLexicon.count) {
@@ -429,6 +430,7 @@ function pruneFeedback() {
 }
 
 async function api(req, res, url) {
+  const actor=currentUser(req);if(accountPolicy.denyRoute(actor,url,req.method))return json(res,403,{error:'访客功能仅限个人体验区，不开放与其他用户互动'});
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     const origin = req.headers.origin;
     if (origin) {
@@ -447,7 +449,7 @@ async function api(req, res, url) {
   if (url.pathname === '/api/client/update' && req.method === 'GET') { try { return json(res, 200, clientReleases.checkUpdate(state, url.searchParams)); } catch (error) { return json(res, 400, { error: error.message }); } }
   const clientReleaseMatch = url.pathname.match(/^\/api\/client\/releases\/([^/]+)$/);
   if (clientReleaseMatch && req.method === 'PATCH') { if (!requireUser(req, res, 'admin')) return; try { const release = clientReleases.update(state, clientReleaseMatch[1], await body(req)); save(state); return json(res, 200, { release }); } catch (error) { return json(res, 400, { error: error.message }); } }
-  if (url.pathname === '/api/downloads' && req.method === 'GET') return json(res, 200, { releases: clientReleases.manifest(state), resources: (state.resourceDownloads || []).map(item => resources.view(state, item)).filter(Boolean) });
+  if (url.pathname === '/api/downloads' && req.method === 'GET') return json(res, 200, { releases: clientReleases.manifest(state), resources: (state.resourceDownloads || []).filter(item=>!accountPolicy.isGuest(actor)||item.category==='client').map(item => resources.view(state, item)).filter(Boolean) });
   if (url.pathname === '/api/downloads' && req.method === 'POST') {
     const admin = requireUser(req, res, 'admin'); if (!admin) return;
     try { const payload = await body(req), file = state.driveFiles.find(item => item.id === payload.fileId && item.scope === 'public'); if (!file) throw new Error('文件不存在'); payload.sha256 = await require('./lib/backups').digest(path.join(driveDir, file.storedName)); const item = resources.publish(state, payload, admin.id); save(state); return json(res, 201, { resource: item }); } catch (error) { return json(res, 400, { error: error.message }); }
@@ -455,6 +457,7 @@ async function api(req, res, url) {
   const resourceContent = url.pathname.match(/^\/api\/downloads\/([a-f0-9-]+)\/content$/);
   if (resourceContent && req.method === 'GET') {
     const item = (state.resourceDownloads || []).find(entry => entry.id === resourceContent[1]);
+    if(accountPolicy.isGuest(actor)&&item?.category!=='client')return json(res,403,{error:'访客不能访问共享资源'});
     if (item?.category === 'client' && state.clientReleases?.find(release => release.version === item.version)?.status === 'withdrawn') return json(res, 410, { error: '此客户端版本已停止分发，请选择推荐版本' });
     if (item?.category === 'client' && ['planned','building'].includes(state.clientReleases?.find(release => release.version === item.version)?.status)) return json(res, 409, { error: '此版本尚未开放下载' });
     const file = item && state.driveFiles.find(entry => entry.id === item.fileId && entry.scope === 'public');
@@ -546,7 +549,7 @@ async function api(req, res, url) {
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
     const sessionsChanged = aiSessions.ensure(state, user); const activeSession = aiSessions.get(state, user, url.searchParams.get('sessionId')); if (sessionsChanged) save(state);
-    return json(res, 200, { user: publicUser(user), preferences: require('./lib/personal-space').preferences(user), ai: { sessions: aiSessions.list(state, user), activeSessionId: activeSession.id, tools: aiTools.visibleCatalog(user), templates: aiTools.list(state, user) }, assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ id, sessionId, status, message, error, createdAt, completedAt, attachment }) => ({ id, sessionId, status, message: message || null, error, createdAt, completedAt, attachmentName: attachment?.name || null })) }, planner: plannerService.listItems(state, user), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id && item.sessionId === activeSession.id).slice(-60), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+    return json(res, 200, { user: publicUser(user), guestTrial: accountPolicy.isGuest(user)?{limits:assistant.limits(state,user).user,usage:assistant.usage(state,user.id),driveMB:user.driveQuotaMB}:null, preferences: require('./lib/personal-space').preferences(user), ai: { sessions: aiSessions.list(state, user), activeSessionId: activeSession.id, tools: aiTools.visibleCatalog(user), templates: aiTools.list(state, user) }, assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ id, sessionId, status, message, error, createdAt, completedAt, attachment }) => ({ id, sessionId, status, message: message || null, error, createdAt, completedAt, attachmentName: attachment?.name || null })) }, planner: plannerService.listItems(state, user), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id && item.sessionId === activeSession.id).slice(-60), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
   }
   if (url.pathname === '/api/workspace/reminders' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
@@ -853,12 +856,14 @@ async function api(req, res, url) {
   if (adminGoPuzzleMatch && req.method === 'DELETE') { const admin = requireUser(req, res, 'admin'); if (!admin) return; goService.deletePuzzle(admin, adminGoPuzzleMatch[1]); return json(res, 200, { ok: true }); }
   if (url.pathname === '/api/account/profile' && req.method === 'PATCH') {
     const user = requireUser(req,res); if(!user)return;
-    try { profiles.update(user,await body(req)); save(state); broadcast({type:'profile-updated',userId:user.id}); return json(res,200,{user:publicUser(user)}); }
+    try { profiles.update(user,await body(req)); save(state); if(!accountPolicy.isGuest(user))broadcast({type:'profile-updated',userId:user.id}); return json(res,200,{user:publicUser(user)}); }
     catch(error){return json(res,error.status||400,{error:error.message});}
   }
   const avatarMatch = url.pathname.match(/^\/api\/avatars\/([a-f0-9-]{36})$/);
   if(avatarMatch && req.method === 'GET') {
     if(!requireUser(req,res))return; const avatar=state.users.find(u=>u.id===avatarMatch[1]&&u.active)?.profile?.avatar;
+    if(accountPolicy.isGuest(currentUser(req))&&currentUser(req).id!==avatarMatch[1])return json(res,404,{error:'头像不存在'});
+    if(state.users.find(u=>u.id===avatarMatch[1])?.role==='guest'&&currentUser(req).role!=='admin'&&currentUser(req).id!==avatarMatch[1])return json(res,404,{error:'头像不存在'});
     if(!avatar)return json(res,404,{error:'头像不存在'});
     const [header,content]=avatar.split(','); res.writeHead(200,{'Content-Type':header.includes('png')?'image/png':'image/jpeg','Cache-Control':'private, max-age=300','X-Content-Type-Options':'nosniff'});return res.end(Buffer.from(content,'base64'));
   }
@@ -930,12 +935,13 @@ async function api(req, res, url) {
   if (url.pathname === '/api/conversations' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
     if (!denyUnless(res, user, 'accessChat', '此账号不能进入聊天功能')) return;
-    return json(res, 200, { ...messaging.inbox(state,user), users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active).map(publicUser) : [] });
+    return json(res, 200, { ...messaging.inbox(state,user), users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active&&item.role!=='guest').map(publicUser) : [] });
   }
   if (url.pathname === '/api/conversations' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; const data = await body(req);
     if (state.conversations.filter(item => item.createdBy === user.id).length >= Number(state.settings.maxConversationsPerUser)) return json(res, 400, { error: `每位用户最多创建 ${state.settings.maxConversationsPerUser} 个聊天` });
     const memberIds = [...new Set([user.id, ...(Array.isArray(data.memberIds) ? data.memberIds : [])])].filter(id => state.users.some(item => item.id === id && item.active));
+    if(memberIds.some(id=>state.users.find(u=>u.id===id)?.role==='guest'))return json(res,400,{error:'访客不能加入聊天'});
     if (memberIds.length < 2) return json(res, 400, { error: '至少选择一位聊天成员' });
     if (memberIds.length > Number(state.settings.maxGroupMembers)) return json(res, 400, { error: `聊天组最多 ${state.settings.maxGroupMembers} 人` });
     const type = data.type === 'direct' && memberIds.length === 2 ? 'direct' : 'group';
@@ -971,11 +977,11 @@ async function api(req, res, url) {
   if (url.pathname === '/api/drive' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'driveEnabled', '此账号的网盘已关闭')) return;
     const privateFiles = state.driveFiles.filter(file => file.scope === 'private' && file.ownerId === user.id);
-    const sharedFiles = state.driveShares.filter(share => share.recipientId === user.id).map(share => state.driveFiles.find(file => file.id === share.fileId)).filter(Boolean);
+    const sharedFiles = accountPolicy.isGuest(user)?[]:state.driveShares.filter(share => share.recipientId === user.id).map(share => state.driveFiles.find(file => file.id === share.fileId)).filter(file=>file&&state.users.find(u=>u.id===file.ownerId)?.role!=='guest');
     const publicFiles = allowed(user, 'viewPublicDrive') ? state.driveFiles.filter(file => file.scope === 'public') : [];
-    return json(res, 200, { privateFiles, sharedFiles, publicFiles, usedBytes: driveUsed(user.id), quotaBytes: Number(user.driveQuotaMB || 0) * 1024 * 1024, permissions: user.permissions });
+    return json(res, 200, { privateFiles, sharedFiles, publicFiles, isolated:accountPolicy.isGuest(user), usedBytes: driveUsed(user.id), quotaBytes: Number(user.driveQuotaMB || 0) * 1024 * 1024, permissions: user.permissions });
   }
-  if (url.pathname === '/api/drive/users' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'driveEnabled')) return; return json(res, 200, { users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active && item.id !== user.id).map(publicUser) : [] }); }
+  if (url.pathname === '/api/drive/users' && req.method === 'GET') { const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'driveEnabled')) return; return json(res, 200, { users: allowed(user, 'viewUsers') ? state.users.filter(item => item.active && item.role!=='guest' && item.id !== user.id).map(publicUser) : [] }); }
   if (url.pathname === '/api/drive/upload' && req.method === 'POST') {
     const user = requireUser(req, res); if (!user) return; if (!denyUnless(res, user, 'driveEnabled', '此账号的网盘已关闭')) return;
     const scope = url.searchParams.get('scope') === 'public' ? 'public' : 'private';
@@ -995,7 +1001,7 @@ async function api(req, res, url) {
     const user = requireUser(req, res); if (!user) return; const index = state.driveFiles.findIndex(item => item.id === driveFileMatch[1]); if (index < 0) return json(res, 404, { error: '文件不存在' }); const file = state.driveFiles[index]; if (user.role !== 'admin' && file.ownerId !== user.id) return json(res, 403, { error: '只能删除自己的文件' }); state.driveFiles.splice(index, 1); state.driveShares = state.driveShares.filter(share => share.fileId !== file.id); removeDriveFile(file); save(state); return json(res, 200, { ok: true });
   }
   if (driveFileMatch && req.method === 'POST' && url.searchParams.get('action') === 'share') {
-    const user = requireUser(req, res); if (!user) return; const file = state.driveFiles.find(item => item.id === driveFileMatch[1]); if (!file || (user.role !== 'admin' && file.ownerId !== user.id)) return json(res, 404, { error: '文件不存在' }); const data = await body(req); const recipient = state.users.find(item => item.id === data.recipientId && item.active); if (!recipient || recipient.id === file.ownerId) return json(res, 400, { error: '请选择其他有效用户' }); if (!state.driveShares.some(item => item.fileId === file.id && item.recipientId === recipient.id)) state.driveShares.push({ id: crypto.randomUUID(), fileId: file.id, recipientId: recipient.id, sharedBy: user.id, createdAt: new Date().toISOString() }); save(state); return json(res, 200, { ok: true });
+    const user = requireUser(req, res); if (!user) return; const file = state.driveFiles.find(item => item.id === driveFileMatch[1]); if (!file || (user.role !== 'admin' && file.ownerId !== user.id)) return json(res, 404, { error: '文件不存在' }); const data = await body(req); const recipient = state.users.find(item => item.id === data.recipientId && item.active); if (!recipient || recipient.role==='guest' || recipient.id === file.ownerId) return json(res, 400, { error: '请选择其他有效用户' }); if (!state.driveShares.some(item => item.fileId === file.id && item.recipientId === recipient.id)) state.driveShares.push({ id: crypto.randomUUID(), fileId: file.id, recipientId: recipient.id, sharedBy: user.id, createdAt: new Date().toISOString() }); save(state); return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/admin/drive' && req.method === 'GET') { if (!requireUser(req, res, 'admin')) return; return json(res, 200, { files: state.driveFiles, shares: state.driveShares, users: state.users.map(publicUser) }); }
   if (url.pathname === '/api/learning/course' && req.method === 'GET') {
@@ -1169,7 +1175,7 @@ async function api(req, res, url) {
     return json(res, 200, { settings: state.settings });
   }
   if (url.pathname === '/api/users' && req.method === 'GET') {
-    if (!requireUser(req, res, 'admin')) return; return json(res, 200, { users: state.users.map(publicUser) });
+    if (!requireUser(req, res, 'admin')) return; return json(res, 200, { users: state.users.map(publicUser), guestPolicy:{permissions:accountPolicy.guestPermissions,limits:accountPolicy.guestLimits,driveQuotaMB:32} });
   }
   if (url.pathname === '/api/users' && req.method === 'POST') {
     if (!requireUser(req, res, 'admin')) return;
@@ -1177,7 +1183,7 @@ async function api(req, res, url) {
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
     if (security.passwordError(password, data.role)) return json(res, 400, { error: security.passwordError(password, data.role) });
     if (state.users.some(u => u.username.toLowerCase() === username.toLowerCase())) return json(res, 409, { error: '账号已存在' });
-    const user = normalizeUser({ id: crypto.randomUUID(), username, displayName: String(data.displayName || username).trim().slice(0, 30), role: data.role === 'admin' ? 'admin' : 'member', active: true, passwordHash: hashPassword(password), permissions: { ...defaultPermissions, ...(data.permissions || {}) }, driveQuotaMB: Number(data.driveQuotaMB) || 1024, createdAt: new Date().toISOString() });
+    const user = normalizeUser({ id: crypto.randomUUID(), username, displayName: String(data.displayName || username).trim().slice(0, 30), role: ['admin','member','guest'].includes(data.role)?data.role:'member', active: true, passwordHash: hashPassword(password), permissions: { ...(data.role==='guest'?accountPolicy.guestPermissions:defaultPermissions), ...(data.permissions || {}) }, driveQuotaMB: data.driveQuotaMB===undefined?(data.role==='guest'?32:1024):Number(data.driveQuotaMB), createdAt: new Date().toISOString() });
     state.users.push(user); save(state); return json(res, 201, { user: publicUser(user) });
   }
   const match = url.pathname.match(/^\/api\/users\/([^/]+)$/);
@@ -1189,17 +1195,19 @@ async function api(req, res, url) {
     if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return json(res, 400, { error: '账号需为 3–24 位字母、数字、_ 或 -' });
     if (!displayName) return json(res, 400, { error: '显示名称不能为空' });
     if (state.users.some(user => user.id !== target.id && user.username.toLowerCase() === username.toLowerCase())) return json(res, 409, { error: '账号已存在' });
-    const removingAdmin = target.role === 'admin' && (data.role === 'member' || data.active === false); const activeAdmins = state.users.filter(user => user.role === 'admin' && user.active);
-    if (target.id === admin.id && (data.active === false || data.role === 'member')) return json(res, 400, { error: '不能停用或降级当前管理员账号' });
+    const removingAdmin = target.role === 'admin' && (data.role&&data.role!=='admin'||data.active===false); const activeAdmins = state.users.filter(user => user.role === 'admin' && user.active);
+    if (target.id === admin.id && (data.active===false||data.role&&data.role!=='admin')) return json(res, 400, { error: '不能停用或降级当前管理员账号' });
     if (removingAdmin && activeAdmins.length <= 1) return json(res, 400, { error: '必须保留至少一个启用的管理员' });
     if (data.password && security.passwordError(String(data.password), data.role || target.role)) return json(res, 400, { error: security.passwordError(String(data.password), data.role || target.role) });
     if (data.driveQuotaMB !== undefined && (!Number.isSafeInteger(Number(data.driveQuotaMB)) || Number(data.driveQuotaMB) < 0)) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' });
     const previousAccount = { username: target.username, displayName: target.displayName, role: target.role, active: target.active, driveQuotaMB: target.driveQuotaMB, permissions: { ...target.permissions } };
     target.username = username; target.displayName = displayName;
     if (typeof data.active === 'boolean') target.active = data.active;
-    if (data.role === 'admin' || data.role === 'member') target.role = data.role;
+    if (['admin','member','guest'].includes(data.role)) target.role = data.role;
     if (data.permissions && typeof data.permissions === 'object') target.permissions = updatePermissions(target.permissions, data.permissions);
     if (data.driveQuotaMB !== undefined) { const quota = Number(data.driveQuotaMB); if (!Number.isSafeInteger(quota) || quota < 0) return json(res, 400, { error: '网盘额度必须是不小于 0 的整数 MB' }); target.driveQuotaMB = quota; }
+    if(target.role==='guest'){if(previousAccount.role!=='guest'){target.permissions={...accountPolicy.guestPermissions,...(data.permissions||{})};target.driveQuotaMB=data.driveQuotaMB===undefined?32:Number(data.driveQuotaMB);}accountPolicy.isolate(state,target);}
+    if(previousAccount.role!==target.role){state.sessions=state.sessions.filter(row=>row.userId!==target.id);wss.clients.forEach(client=>{if(client.user?.id===target.id)client.close(4003,'role changed');});goWss.clients.forEach(client=>{if(client.user?.id===target.id)client.close(4003,'role changed');});}
     if (data.password) { target.passwordHash = hashPassword(String(data.password)); state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4003, 'password changed'); }); }
     if (!target.active) { state.sessions = state.sessions.filter(session => session.userId !== target.id); wss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); goWss.clients.forEach(client => { if (client.user?.id === target.id) client.close(4002, 'account disabled'); }); }
     if (!target.active || !allowed(target, 'accessNotebook')) { closeNotebookSockets(target.id); stopNotebook(target.id).catch(error => console.error('Notebook stop error:', error.message)); }
@@ -1235,6 +1243,7 @@ async function proxyNotebookHttp(req, res) {
 
 function staticFile(req, res, url) {
   const clean = url.pathname === '/' ? '/index.html' : url.pathname;
+  const viewer=currentUser(req);if(accountPolicy.isGuest(viewer)&&['/chat.html','/games/go.html','/learning.html','/python.html','/admin.html','/ai-records.html'].includes(clean)){res.writeHead(302,{Location:'/app.html#home','Cache-Control':'no-store'});return res.end();}
   const calculatorRoot = '/genshin-calculator';
   const isCalculatorPath = clean === calculatorRoot || clean.startsWith(`${calculatorRoot}/`);
   if (isCalculatorPath && !currentUser(req)) {
