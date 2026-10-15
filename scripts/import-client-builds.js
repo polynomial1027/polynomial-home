@@ -11,7 +11,7 @@ const dir=path.join(dataDir,'drive');fs.mkdirSync(dir,{recursive:true});
 function files(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?files(path.join(dir,entry.name)):[path.join(dir,entry.name)]);}
 let added=0;
 for(const source of files(root)){
- const name=path.basename(source);if(!/\.(apk|dmg|exe|AppImage|deb|zip)$/.test(name))continue;
+ const name=path.basename(source);if(name.startsWith('.')||!/^Polynomial-/.test(name)||!/\.(apk|dmg|exe|AppImage|deb|zip)$/.test(name))continue;
  const platform=/\.apk$/.test(name)?'android':/-mac-/.test(name)?'mac':/-win-/.test(name)?'windows':/-linux-/.test(name)?'linux':null;if(!platform)continue;
  const sha256=crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex');if(state.resourceDownloads?.some(item=>item.sha256===sha256))continue;
  const id=crypto.randomUUID();fs.copyFileSync(source,path.join(dir,id));fs.chmodSync(path.join(dir,id),0o600);const size=fs.statSync(source).size;

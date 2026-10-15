@@ -45,3 +45,16 @@ test('legacy JSON migrates once and is never used to overwrite newer SQLite reco
     const db = new StateDatabase(dir); assert.equal(db.read().users[0].displayName, 'Updated'); db.close();
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('installer imports ignore macOS archive metadata', () => {
+  const { spawnSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polynomial-import-')), source = path.join(dir, 'packages'), data = path.join(dir, 'data');
+  try {
+    fs.mkdirSync(source);
+    fs.writeFileSync(path.join(source, 'Polynomial-0.3.8-linux-x64.deb'), 'installer');
+    fs.writeFileSync(path.join(source, '._Polynomial-0.3.8-linux-x64.deb'), 'archive metadata');
+    const result = spawnSync(process.execPath, ['scripts/import-client-builds.js', source], { cwd: path.join(__dirname, '..'), env: { ...process.env, POLYNOMIAL_DATA_DIR: data, POLYNOMIAL_OFFLINE_IMPORT: '1', ADMIN_PASSWORD: 'test-admin-password', DEEPSEEK_API_KEY: '' } });
+    assert.equal(result.status, 0, result.stderr.toString());
+    const db = new StateDatabase(data); assert.equal(db.read().resourceDownloads.length, 1); assert.equal(db.read().driveFiles[0].originalName, 'Polynomial-0.3.8-linux-x64.deb'); db.close();
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
