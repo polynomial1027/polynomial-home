@@ -34,6 +34,7 @@
   let data, admin, butler, busy = false, refreshing = false, activePage, editingTask = null, editingTaskVersion = null, selected = day(new Date()), month = selected.slice(0, 7), filter = 'open', pendingMessage = '', noticeTimer, chatSignature = '', confirmation;
   const pageNames = { home: '总览', assistant: '智能助手', calendar: '计划与日历', tools: '常用工具', control: '服务器管理', account: '账号与偏好' };
   const toolDefinitions = [
+    ['accessAssistant', 'spark', 'AI 工具箱', '多会话、文本摘要、翻译与资料分析', '#assistant'],
     ['driveEnabled', 'drive', '文件网盘', '个人文件与公共共享资源', '/drive.html'],
     ['accessChat', 'chat', '团队聊天', '与成员保持联系', '/chat.html'],
     ['accessLearning', 'book', '网络学习', '课程、实验与学习进度', '/learning.html'],
@@ -44,6 +45,7 @@
   ];
   const permitted = key => !key || data?.user.role === 'admin' || data?.user.permissions?.[key] === true;
   const tools = () => [...toolDefinitions.filter(([key]) => permitted(key)), ...(data?.user.role === 'admin' ? [[null, 'shield', '服务器管理', '账号、巡检与用量', '#control']] : [])];
+  const aiWorkspace = window.createAiWorkspace({ getData: () => data, isOffline: () => offline, isSending: () => busy, api, refresh, notice, rerender: () => renderChat() });
   const personalSpace = window.createPersonalSpace({ getData: () => data, isOffline: () => offline, tools, icon, api, refresh, notice });
   function notice(message, kind = 'success') { clearTimeout(noticeTimer); $('#appNotice').hidden = !message; $('#appNotice').textContent = message || ''; $('#appNotice').dataset.kind = kind; if (message && kind !== 'error') noticeTimer = setTimeout(() => { $('#appNotice').hidden = true; }, 5000); }
   async function api(url, options = {}) {
@@ -51,7 +53,7 @@
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), !options.method || options.method === 'GET' ? 15000 : 120000);
     let response; try { response = await fetch(url, { ...options, signal: options.signal || controller.signal, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options.headers } }); } catch (error) { error.network = true; throw error; } finally { clearTimeout(timeout); }
     const result = await response.json();
-    if (!response.ok) { if (response.status === 401) { window.PolynomialCalendarCache?.clear(); window.__TAURI__?.core?.invoke('clear_reminders').catch(() => {}); location.href = '/login.html?next=' + encodeURIComponent('/app.html' + location.hash); } throw new Error(result.error || '操作失败，请重试'); }
+    if (!response.ok) { if (response.status === 401) { window.PolynomialCalendarCache?.clear(); window.__TAURI__?.core?.invoke('clear_reminders').catch(() => {}); location.href = '/login.html?next=' + encodeURIComponent('/app.html' + location.search + location.hash); } throw Object.assign(new Error(result.error || '操作失败，请重试'), { status: response.status }); }
     return result;
   }
   const action = (fn, prevent = true) => async event => { if (prevent) event?.preventDefault(); try { await fn(event); } catch (error) { notice(error.message, 'error'); } };
@@ -77,7 +79,7 @@
     document.querySelectorAll('.app-nav [data-page]').forEach(link => { const current = link.dataset.page === page; link.classList.toggle('active', current); if (current) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); });
     $('#currentPage').textContent = pageNames[page]; document.title = `${pageNames[page]} · Polynomial`;
     const changed = page !== activePage;
-    if (changed) for (const id of ['chatHistoryDialog', 'spaceSettingsDialog']) { const dialog = $(`#${id}`); if (dialog.open) dialog.close(); }
+    if (changed) for (const id of ['chatHistoryDialog', 'spaceSettingsDialog', 'aiToolsDialog', 'aiSessionDialog', 'aiDeleteDialog']) { const dialog = $(`#${id}`); if (dialog.open) dialog.close(); }
     if (scroll && changed) window.scrollTo({ top: 0 }); activePage = page; document.body.dataset.page = page;
     if (page === 'assistant') { updateDraft(); if (changed) requestAnimationFrame(() => { $('#appChatThread').scrollTop = $('#appChatThread').scrollHeight; }); }
   }
@@ -132,12 +134,14 @@
     if (data.user.role === 'admin' && latestReview) $('#homeHealth').textContent += ` AI 巡检（${fullTime(latestReview.createdAt)}）：${latestReview.summary || latestReview.error || '正在分析'}。`;
   }
   function renderChat(forceScroll = false) {
+    aiWorkspace.render();
     const ready = data.assistant.allowed && data.assistant.enabled && data.assistant.configured;
     $('#assistantStatus').textContent = ready ? (data.assistant.pricing.peak ? '高峰时段 · 可排队发送' : '低峰时段 · 可使用') : !data.assistant.allowed ? '未获授权' : '暂未开放';
     $('#assistantDescription').textContent = ready ? '与你的计划和日历相连，继续一个想法。' : '管理员尚未开放 AI 服务；日程和其他工具可以继续使用。';
-    $('#appChatMessage').disabled = !ready; $('#sendChat').disabled = !ready || busy;
+    const sessionReady = aiWorkspace.canSend();
+    $('#appChatMessage').disabled = !ready || !sessionReady; $('#sendChat').disabled = !ready || !sessionReady || busy;
     $('#sendChat').querySelector('span').textContent = busy ? '处理中' : '发送';
-    const signature = JSON.stringify([data.chats, busy, pendingMessage]);
+    const signature = JSON.stringify([data.ai?.activeSessionId, data.chats, busy, pendingMessage]);
     if (signature !== chatSignature) {
       const thread = $('#appChatThread'), wasAtBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100;
       const messageHtml = (content, role, index, at) => `<div class="message ${role === 'user' ? 'user' : ''}"><span class="message-avatar">${role === 'user' ? esc(data.user.displayName.slice(0, 1)) : icon('spark')}</span><div class="message-body"><div class="message-header"><span>${role === 'user' ? '你' : 'Polynomial 助手'}</span>${at ? `<time>${time(at)}</time>` : ''}${role === 'assistant' ? `<button type="button" data-copy-message="${index}">复制</button>` : ''}</div><div>${role === 'user' ? esc(content) : window.renderAssistantMath(content)}</div></div></div>`;
@@ -148,7 +152,7 @@
       chatSignature = signature;
     }
     const queue = data.assistant.queue.filter(item => ['pending', 'running', 'failed'].includes(item.status)).slice(-10).reverse();
-    $('#appQueue').innerHTML = queue.length ? queue.map(item => `<div class="queue-item"><strong>${esc(item.message || item.error || '消息处理中')}</strong><div><span>${item.status === 'pending' ? '等待低峰发送' : item.status === 'running' ? '正在发送' : '发送失败'} · ${time(item.createdAt)}</span>${item.status === 'pending' ? `<button type="button" data-cancel-queue="${esc(item.id)}">取消</button>` : ''}</div></div>`).join('') : empty('clock', '没有等待中的消息', '选择低峰发送后，可在这里查看。');
+    $('#appQueue').innerHTML = queue.length ? queue.map(item => `<div class="queue-item"><strong>${esc(item.message || item.error || '消息处理中')}</strong><div><span>${esc(data.ai?.sessions.find(row => row.id === item.sessionId)?.title || '历史对话')} · ${item.status === 'pending' ? '等待低峰发送' : item.status === 'running' ? '正在发送' : '发送失败'} · ${time(item.createdAt)}</span>${item.sessionId ? `<button type="button" data-open-ai-session="${item.sessionId}">查看会话</button>` : ''}${item.status === 'pending' ? `<button type="button" data-cancel-queue="${esc(item.id)}">取消</button>` : ''}</div></div>`).join('') : empty('clock', '没有等待中的消息', '选择低峰发送后，可在这里查看。');
   }
   function renderAdmin() {
     if (!admin || data.user.role !== 'admin') return;
@@ -186,13 +190,16 @@
   async function refreshSnapshot() {
     refreshing = true; $('#refreshApp').classList.add('refreshing'); $('#refreshApp').disabled = true;
     try {
-      const snapshot = await api('/api/workspace');
+      let snapshot;
+      try { snapshot = await api('/api/workspace' + (aiWorkspace.requestId() ? `?sessionId=${encodeURIComponent(aiWorkspace.requestId())}` : '')); }
+      catch (error) { if (error.status !== 404) throw error; aiWorkspace.resetSelection(); snapshot = await api('/api/workspace'); notice('原会话已删除或不可访问，已回到你的会话列表。', 'error'); }
+      if (aiWorkspace.initial(snapshot)) snapshot = await api(`/api/workspace?sessionId=${encodeURIComponent(aiWorkspace.requestId())}`);
       const stored = window.PolynomialCalendarCache?.load(); if (stored && stored.user.id !== snapshot.user.id) window.PolynomialCalendarCache.clear();
       data = snapshot; offline = false; window.PolynomialCalendarCache?.save(data);
       if (data.user.role === 'admin') { const results = await Promise.allSettled([api('/api/admin/assistant'), api('/api/admin/butler')]); admin = results[0].status === 'fulfilled' ? results[0].value : admin; butler = results[1].status === 'fulfilled' ? results[1].value : butler; }
       render(); maybeBrief(); window.PolynomialReminderUI?.sync(data).catch(error => console.warn('Reminder sync:', error));
       $('#connectionStatus').textContent = `已同步 · ${new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })}`;
-      if (!$('#appChatMessage').value) { try { $('#appChatMessage').value = sessionStorage.getItem(`assistant-draft:${data.user.id}`) || ''; } catch {} updateDraft(); }
+      updateDraft();
     } catch (error) {
       const cached = error.network && window.PolynomialCalendarCache?.load();
       if (cached) { data = cached; admin = null; butler = null; offline = true; render(); $('#connectionStatus').textContent = `离线副本 · ${fullTime(cached.savedAt)}`; notice('当前显示此设备保存的日程，只能查看。网络恢复后自动同步。', 'error'); }
@@ -200,7 +207,7 @@
     }
     finally { refreshing = false; $('#refreshApp').classList.remove('refreshing'); $('#refreshApp').disabled = false; }
   }
-  function updateDraft() { const input = $('#appChatMessage'); input.style.height = 'auto'; input.style.height = `${Math.min(200, Math.max(76, input.scrollHeight))}px`; $('#messageCount').textContent = `${input.value.length} / 4000`; if (data) try { sessionStorage.setItem(`assistant-draft:${data.user.id}`, input.value); } catch {} }
+  function updateDraft() { const input = $('#appChatMessage'); input.style.height = 'auto'; input.style.height = `${Math.min(200, Math.max(76, input.scrollHeight))}px`; $('#messageCount').textContent = `${input.value.length} / 4000`; if (aiWorkspace.draftKey()) try { sessionStorage.setItem(aiWorkspace.draftKey(), input.value); } catch {} }
   function openTask(id = null) {
     if (!data || !permitted('accessPlanner')) return;
     const item = id ? data.planner.find(row => row.id === id) : null; if (id && !item) return;
@@ -267,7 +274,7 @@
   $('#appChatForm').onsubmit = action(async () => {
     const input = $('#appChatMessage'), message = input.value.trim(); if (!message || busy) return;
     busy = true; pendingMessage = message; input.value = ''; updateDraft(); renderChat(true);
-    try { const result = await api('/api/workspace/assistant', { method: 'POST', body: JSON.stringify({ message, sendMode: $('#appOffpeak').checked ? 'offpeak' : 'now' }) }); pendingMessage = ''; busy = false; await refresh(); if (result.queued) notice('已进入低峰发送队列，可在右侧查看或取消。'); }
+    try { const result = await api('/api/workspace/assistant', { method: 'POST', body: JSON.stringify({ message, ...aiWorkspace.payload(), sendMode: $('#appOffpeak').checked ? 'offpeak' : 'now' }) }); aiWorkspace.sent(); pendingMessage = ''; busy = false; await refresh(); if (result.queued) notice('已进入低峰发送队列，可在右侧查看或取消。'); }
     catch (error) { if (!input.value) { input.value = message; updateDraft(); } throw error; }
     finally { busy = false; pendingMessage = ''; renderChat(); }
   });
@@ -282,7 +289,7 @@
   $('#reviewScheduleForm').onsubmit = action(async () => { const button = $('#reviewScheduleForm button'); button.disabled = true; try { await api('/api/admin/assistant', { method: 'PATCH', body: JSON.stringify({ assistantReviewFrequency: $('#appReviewFrequency').value }) }); await refresh(); notice('自动巡检间隔已保存。'); } finally { button.disabled = false; } });
   $('#appearance').onchange = () => { storage.set('polynomial:appearance', $('#appearance').value); applyAppearance(); notice('外观偏好已保存到此设备。'); }; $('#compactLayout').onchange = () => { storage.set('polynomial:compact', $('#compactLayout').checked); applyAppearance(); };
   $('#offlineCalendar').onchange = () => { window.PolynomialCalendarCache?.setEnabled($('#offlineCalendar').checked); if ($('#offlineCalendar').checked && data && !offline) window.PolynomialCalendarCache.save(data); notice($('#offlineCalendar').checked ? '此设备会保存日程供离线查看。' : '此设备的离线日程已清除。'); };
-  $('#appLogout').onclick = action(async () => { await window.PolynomialReminderUI?.logout().catch(() => {}); if (data) try { sessionStorage.removeItem(`assistant-draft:${data.user.id}`); } catch {} window.PolynomialCalendarCache?.clear(); offline = false; await api('/api/logout', { method: 'POST' }); location.href = '/login.html?next=%2Fapp.html'; });
+  $('#appLogout').onclick = action(async () => { await window.PolynomialReminderUI?.logout().catch(() => {}); aiWorkspace.clearDrafts(); window.PolynomialCalendarCache?.clear(); offline = false; await api('/api/logout', { method: 'POST' }); location.href = '/login.html?next=%2Fapp.html'; });
   function renderCommands() {
     const query = $('#commandQuery').value.trim().toLowerCase();
     const pages = Object.entries(pageNames).filter(([name]) => name !== 'control' || data?.user.role === 'admin').map(([name, title]) => [null, name === 'assistant' ? 'spark' : name === 'control' ? 'shield' : name === 'account' ? 'user' : name, title, '应用页面', `#${name}`]);

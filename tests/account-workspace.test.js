@@ -117,6 +117,19 @@ test('password edit invalidates old login, persists across restart, and member A
     assert.equal((await fetch(`http://127.0.0.1:${port}/ai-records.html`, { headers: { cookie: freshAdmin.cookie } })).status, 200);
     assert.equal((await call('/api/downloads', 'POST', {fileId:file.id,title:'member publish',platform:'android'}, logged.cookie)).status, 403);
     for (const route of ['/app.html','/download.html','/app.webmanifest','/app-sw.js','/assets/app/icon-192.png']) { const response=await fetch(`http://127.0.0.1:${port}${route}`);assert.equal(response.status,200,route); }
+    const prompt = '中文资料必须完整保留，不能出现乱码';
+    const payload = Buffer.from(JSON.stringify({ title: '中文模板', prompt }));
+    const splitAt = payload.indexOf(Buffer.from('中')) + 1;
+    const fragmented = await new Promise((resolve, reject) => {
+      const req = require('node:http').request({ hostname: '127.0.0.1', port, path: '/api/account/ai/templates', method: 'POST', headers: { cookie: freshAdmin.cookie, 'content-type': 'application/json', 'content-length': payload.length } }, res => {
+        const chunks = []; res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }));
+      });
+      req.on('error', reject); req.write(payload.subarray(0, splitAt));
+      setTimeout(() => req.end(payload.subarray(splitAt)), 15);
+    });
+    assert.equal(fragmented.status, 201);
+    assert.equal(fragmented.body.templates.find(row => row.title === '中文模板').prompt, prompt);
     const announcements = await call('/api/announcements');
     assert.ok(announcements.body.announcements.some(item => item.id === 'ai-workspace-v027'));
   } finally { await stop(); fs.rmSync(directory, { recursive: true, force: true }); }

@@ -31,7 +31,7 @@
     $('#pendingOperationsCount').textContent = failed.length;
     const report = snapshot?.admin?.reports?.[0] || snapshot?.data.health?.[0], disk = report?.disk;
     const backup = operations.backups[0], next = enabled.filter(job => job.status !== 'running').sort((a, b) => Date.parse(a.nextAttemptAt || a.nextRunAt) - Date.parse(b.nextAttemptAt || b.nextRunAt))[0];
-    const ai = snapshot?.admin, used = Number(ai?.usage?.dailyTokens || 0), limit = Number(ai?.settings?.assistantDailyTokens || 0);
+    const ai = snapshot?.admin, used = Number(ai?.globalUsage?.dailyTokens || 0), limit = Number(ai?.settings?.assistantDailyTokens || 0);
     const remaining = disk && disk.totalGB > 0 ? Math.max(0, Math.min(100, Math.round(disk.freeGB / disk.totalGB * 100))) : null;
     const card = (title, value, detail, warning = false, percent = null) => `<article class="control-metric ${warning ? 'needs-attention' : ''}"><small>${title}</small><strong>${esc(value)}</strong>${percent === null ? '' : `<meter min="0" max="100" value="${percent}" aria-label="${title}">${percent}%</meter>`}<p>${esc(detail)}</p></article>`;
     $('#controlOverview').innerHTML = [

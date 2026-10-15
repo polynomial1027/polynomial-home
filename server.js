@@ -33,6 +33,8 @@ const { BackupService } = require('./lib/backups');
 const { JobScheduler } = require('./lib/jobs');
 const security = require('./lib/security');
 const { createOperationsApi } = require('./lib/operations-api');
+const { createAiApi } = require('./lib/ai-api');
+const aiSessions = require('./lib/ai-sessions'), aiTools = require('./lib/ai-tools');
 
 const execFileAsync = promisify(execFile);
 
@@ -257,15 +259,15 @@ function closeNotebookSockets(userId, token = null) {
   for (const [socket, socketToken] of sockets) if (!token || token === socketToken) socket.destroy();
 }
 const body = req => new Promise((resolve, reject) => {
-  let raw = '', tooLarge = false; const maxBodyBytes = Math.max(64_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048, (Number(state.settings.goStudyMaxKB) || 512) * 1024 + 2048);
+  let chunks = [], bytes = 0, tooLarge = false; const maxBodyBytes = Math.max(64_000, (Number(state.settings.maxGameSaveKB) || 256) * 1024 + 2048, (Number(state.settings.goStudyMaxKB) || 512) * 1024 + 2048);
   req.on('data', chunk => {
     if (tooLarge) return;
-    raw += chunk;
-    if (Buffer.byteLength(raw) > maxBodyBytes) { tooLarge = true; raw = ''; reject(new Error('请求超过后台设置的存储上限')); }
+    bytes += chunk.length;
+    if (bytes > maxBodyBytes) { tooLarge = true; chunks = []; reject(new Error('请求超过后台设置的存储上限')); } else chunks.push(chunk);
   });
   req.on('aborted', () => reject(new Error('请求已中断')));
   req.on('error', reject);
-  req.on('end', () => { if (tooLarge) return; try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('JSON 格式错误')); } });
+  req.on('end', () => { if (tooLarge) return; try { const raw = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)); resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('JSON 格式错误')); } });
 });
 const requireUser = (req, res, role) => {
   const user = currentUser(req);
@@ -435,6 +437,7 @@ async function api(req, res, url) {
     }
   }
   if (backups.busy && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !url.pathname.startsWith('/api/admin/operations/')) return json(res, 503, { error: '正在创建或验证备份，请稍后重试' });
+  if (await aiApi(req, res, url)) return;
   if (await operationsApi(req, res, url)) return;
   if (url.pathname === '/api/health' && req.method === 'GET') return json(res, 200, { ok: true, version: require('./package.json').version });
   const clientDeliveryMatch = url.pathname.match(/^\/api\/client\/delivery\/(Polynomial-[A-Za-z0-9_.-]+)$/);
@@ -541,7 +544,8 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
-    return json(res, 200, { user: publicUser(user), preferences: require('./lib/personal-space').preferences(user), assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ message, ...safe }) => ({ ...safe, message: message || null })) }, planner: plannerService.listItems(state, user), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id).slice(-30), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
+    const sessionsChanged = aiSessions.ensure(state, user); const activeSession = aiSessions.get(state, user, url.searchParams.get('sessionId')); if (sessionsChanged) save(state);
+    return json(res, 200, { user: publicUser(user), preferences: require('./lib/personal-space').preferences(user), ai: { sessions: aiSessions.list(state, user), activeSessionId: activeSession.id, tools: aiTools.visibleCatalog(user), templates: aiTools.list(state, user) }, assistant: { enabled: state.settings.assistantEnabled === true, configured: Boolean(assistantKey), allowed: allowed(user, 'accessAssistant'), reviewFrequency: user.role === 'admin' ? state.settings.assistantReviewFrequency : undefined, model: assistantModel, pricing: user.role === 'admin' ? priceWindow(new Date(), assistantModel) : { peak: priceWindow(new Date(), assistantModel).peak }, limits: user.role === 'admin' ? assistant.limits(state, user) : undefined, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, queue: state.assistantQueuedChats.filter(item => item.userId === user.id).slice(-20).map(({ id, sessionId, status, message, error, createdAt, completedAt, attachment }) => ({ id, sessionId, status, message: message || null, error, createdAt, completedAt, attachmentName: attachment?.name || null })) }, planner: plannerService.listItems(state, user), brief: plannerService.dailyBrief(state, user), chats: state.assistantChats.filter(item => item.userId === user.id && item.sessionId === activeSession.id).slice(-60), health: user.role === 'admin' ? state.healthReports.slice(0, 7) : [] });
   }
   if (url.pathname === '/api/workspace/reminders' && req.method === 'GET') {
     const user = requireUser(req, res); if (!user) return;
@@ -598,11 +602,11 @@ async function api(req, res, url) {
     const data = await body(req), message = chatService.validateMessage(data.message);
     const window = priceWindow(new Date(), assistantModel);
     if (window.peak && data.sendMode !== 'now') {
-      const queued = chatService.queueChat(state, save, user, message);
+      const queued = chatService.queueChat(state, save, user, message, new Date(), { sessionId: data.sessionId, attachment: data.attachment });
       return json(res, 202, { queued, pricing: user.role === 'admin' ? window : { peak: window.peak } });
     }
-    try { const reply = await chatService.sendChat({ state, save, user, value: message, key: assistantKey, model: assistantModel }); return json(res, 200, { reply, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, pricing: user.role === 'admin' ? window : { peak: window.peak } }); }
-    catch (error) { return json(res, error.code === 'AI_LIMIT' ? 429 : 502, { error: error.message }); }
+    try { const reply = await chatService.sendChat({ state, save, user, value: message, key: assistantKey, model: assistantModel, sessionId: data.sessionId, attachment: data.attachment }); return json(res, 200, { reply, usage: user.role === 'admin' ? assistant.usage(state, user.id) : undefined, pricing: user.role === 'admin' ? window : { peak: window.peak } }); }
+    catch (error) { return json(res, error.code === 'AI_LIMIT' ? 429 : error.status || 502, { error: error.message }); }
   }
   const queuedChatMatch = url.pathname.match(/^\/api\/workspace\/assistant\/queue\/([a-f0-9-]+)$/);
   if (queuedChatMatch && req.method === 'DELETE') {
@@ -1246,6 +1250,7 @@ const scheduler = new JobScheduler({ state, save, model: assistantModel, audit: 
   backup: { ready: () => true, run: async () => { const result = await backups.create({ source: 'auto', retention: state.settings.backupRetention }); return { summary: `备份已恢复验证，${result.fileCount} 个文件` }; } },
   review: { ready: () => Boolean(assistantKey && state.settings.assistantEnabled && state.users.some(user => user.active && user.role === 'admin')), run: async ({ manual, user }) => performMaintenanceReview(manual && user || state.users.find(user => user.active && user.role === 'admin'), manual ? 'manual' : 'auto') }
 } });
+const aiApi = createAiApi({ state, save, requireUser, allowed, body, json });
 const operationsApi = createOperationsApi({ state, save, json, body, requireUser, cookies, verifyPassword, hashPassword, appendAudit, scheduler, backups, closeSession: session => {
   closeNotebookSockets(session.userId, session.token);
   for (const hub of [wss, goWss]) hub.clients.forEach(client => { if (client.sessionToken === session.token) client.close(4003, 'session revoked'); });
@@ -1265,7 +1270,7 @@ const server = http.createServer(async (req, res) => {
   try { if (url.pathname.startsWith('/api/')) await api(req, res, url); else if (url.pathname.startsWith('/python/session/')) await proxyNotebookHttp(req, res); else staticFile(req, res, url); }
   catch (error) {
     console.error(error);
-    const status = error?.code === 'FORBIDDEN' ? 403 : error?.code === 'NOT_FOUND' ? 404 : ['ENGINE_UNAVAILABLE', 'GO_DISABLED'].includes(error?.code) ? 503 : error?.code === 'INVITE_LIMIT' ? 429 : 400;
+    const status = error?.status || (error?.code === 'FORBIDDEN' ? 403 : error?.code === 'NOT_FOUND' ? 404 : ['ENGINE_UNAVAILABLE', 'GO_DISABLED'].includes(error?.code) ? 503 : error?.code === 'INVITE_LIMIT' ? 429 : 400);
     if (!res.headersSent) json(res, status, { error: error.message || '请求失败', code: error.code || 'REQUEST_FAILED' });
   } finally { activeMutations.delete(req); }
 });

@@ -172,3 +172,38 @@ test('public home exposes installation and preserves a calendar destination thro
   await page.locator('#username').fill('fixturemember'); await page.locator('#password').fill('fixture-member-password'); await page.locator('#loginForm button').click();
   await expect(page.locator('#appCalendar')).toBeVisible(); expect(new URL(page.url()).hash).toBe('#calendar');
 });
+
+async function enableFixtureComposer(page) {
+  await page.route('**/api/workspace**', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/workspace') return route.continue();
+    const response = await route.fetch(), data = await response.json(); if (data.assistant) { data.assistant.enabled = true; data.assistant.configured = true; } await route.fulfill({ response, json: data });
+  });
+}
+test('AI sessions keep drafts separate and support rename, pin, archive, export and delete', async ({ page }) => {
+  await enableFixtureComposer(page); await login(page, true); await page.goto('/app.html#assistant');
+  await page.locator('#newAiSession').click(); await expect(page.locator('#aiSessionTitle')).toHaveText('新的对话');
+  const a = await page.locator('#aiSessionList .active').getAttribute('data-ai-session'); await page.locator('#appChatMessage').fill('draft in A');
+  await page.locator('#newAiSession').click(); await expect.poll(() => page.locator('#aiSessionList .active').getAttribute('data-ai-session')).not.toBe(a);
+  const b = await page.locator('#aiSessionList .active').getAttribute('data-ai-session'); await expect(page.locator('#appChatMessage')).toHaveValue(''); await page.locator('#appChatMessage').fill('draft in B');
+  await page.locator(`[data-ai-session="${a}"]`).click(); await expect(page.locator('#appChatMessage')).toHaveValue('draft in A');
+  await page.locator('#editAiSession').click(); await page.locator('#aiRenameSession').fill('工作项目 A'); await page.locator('#aiPinSession').check(); await page.locator('#aiSessionForm button[type="submit"]').click();
+  await expect(page.locator('#aiSessionTitle')).toHaveText('工作项目 A'); await expect(page.locator(`[data-ai-session="${a}"]`)).toContainText('★');
+  await page.locator('#editAiSession').click(); const downloading = page.waitForEvent('download'); await page.locator('#aiExportSession').click(); const exported = await downloading; expect(exported.suggestedFilename()).toContain(a);
+  await page.locator('#aiArchiveSession').click(); await expect(page.locator('#aiSessionTool')).toContainText('已归档'); await expect(page.locator('#sendChat')).toBeDisabled();
+  await page.locator('#editAiSession').click(); await page.locator('#aiArchiveSession').click(); await expect(page.locator('#aiSessionTool')).not.toContainText('已归档');
+  await page.locator('#editAiSession').click(); await page.locator('#aiDeleteSession').click(); await page.locator('#aiDeleteDialog button[value="delete"]').click();
+  await expect(page.locator(`[data-ai-session="${a}"]`)).toHaveCount(0); await page.locator(`[data-ai-session="${b}"]`).click(); await expect(page.locator('#appChatMessage')).toHaveValue('draft in B');
+});
+test('AI toolbox stores private reusable prompts and reviews a text attachment before any model request', async ({ page, browser }) => {
+  await enableFixtureComposer(page); let modelCalls = 0; page.on('request', req => { if (new URL(req.url()).pathname === '/api/workspace/assistant') modelCalls++; });
+  await login(page, true); await page.goto('/app.html#assistant'); await page.locator('#openAiTools').click();
+  await expect(page.locator('#aiToolCatalog')).toContainText('文本资料分析'); await page.locator('#aiTemplateTitle').fill('私人周报'); await page.locator('#aiTemplatePrompt').fill('private-template-sentinel：按进展、问题、下周安排输出。'); await page.locator('#aiTemplateForm button[type="submit"]').click();
+  await expect(page.locator('#aiTemplateList')).toContainText('私人周报'); await page.locator('[data-use-ai-template]').last().click(); await expect(page.locator('#aiSessionTool')).toContainText('私人周报');
+  const id = await page.locator('#aiSessionList .active').getAttribute('data-ai-session');
+  await page.locator('#aiFileInput').setInputFiles({ name: 'notes.md', mimeType: 'text/plain', buffer: Buffer.from('周报资料：完成了接口联调。') }); await expect(page.locator('#aiAttachment')).toContainText('notes.md');
+  expect(modelCalls).toBe(0); await page.locator('#removeAiAttachment').click(); await expect(page.locator('#aiAttachment')).toBeHidden();
+  const otherContext = await browser.newContext({ baseURL: 'http://127.0.0.1:3190' });
+  try { const api = otherContext.request; await api.post('/api/login', { data: { username: 'fixtureother', password: 'fixture-other-password' } }); expect((await api.get(`/api/account/ai/sessions/${id}`)).status()).toBe(404); expect((await api.get(`/api/workspace?sessionId=${id}`)).status()).toBe(404); expect(JSON.stringify(await (await api.get('/api/workspace')).json())).not.toContain('private-template-sentinel'); } finally { await otherContext.close(); }
+  await page.setViewportSize({ width: 390, height: 844 }); await expect(page.locator('#sendChat')).toBeInViewport(); await page.locator('#toggleAiSessions').click(); await expect(page.locator('#aiSessionSearch')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

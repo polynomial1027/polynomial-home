@@ -1,8 +1,8 @@
 window.createPersonalSpace = ({ getData, isOffline, tools, icon, api, refresh, notice }) => {
   const $ = selector => document.querySelector(selector);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const ids = { '/drive.html': 'drive', '/chat.html': 'chat', '/learning.html': 'learning', '#calendar': 'calendar', '/games.html': 'games', '/download.html': 'downloads', '/workspace.html': 'advanced', '#control': 'control' };
-  const groups = { drive: '日常工作', chat: '日常工作', calendar: '日常工作', learning: '学习与探索', games: '学习与探索', downloads: '资源与设置', advanced: '资源与设置', control: '资源与设置' };
+  const ids = { '#assistant': 'assistant', '/drive.html': 'drive', '/chat.html': 'chat', '/learning.html': 'learning', '#calendar': 'calendar', '/games.html': 'games', '/download.html': 'downloads', '/workspace.html': 'advanced', '#control': 'control' };
+  const groups = { assistant: '日常工作', drive: '日常工作', chat: '日常工作', calendar: '日常工作', learning: '学习与探索', games: '学习与探索', downloads: '资源与设置', advanced: '资源与设置', control: '资源与设置' };
   const widgetLabels = { welcome: '欢迎与下一项安排', today: '今天的安排', brief: '每日回顾', tools: '我的收藏入口' };
   let draft, historyPage = 1, historyRows = [], historySequence = 0;
   const entries = () => tools().map(entry => ({ entry, id: ids[entry[4]], group: groups[ids[entry[4]]] }));
@@ -66,7 +66,7 @@ window.createPersonalSpace = ({ getData, isOffline, tools, icon, api, refresh, n
     const sequence = ++historySequence; $('#historyStatus').textContent = '正在读取你的记录…';
     $('#historyPrev').disabled = true; $('#historyNext').disabled = true;
     try {
-      const query = new URLSearchParams({ q: $('#historyQuery').value.trim(), date: $('#historyDate').value, page });
+      const query = new URLSearchParams({ q: $('#historyQuery').value.trim(), date: $('#historyDate').value, sessionId: $('#historySession').value, page });
       const result = await api(`/api/account/assistant-history?${query}`); if (sequence !== historySequence) return;
       historyRows = result.messages; historyPage = result.page;
       $('#historyStatus').textContent = `${result.total} 条记录 · 第 ${result.page} / ${result.pages} 页 · 时间为北京时间`;
@@ -74,7 +74,7 @@ window.createPersonalSpace = ({ getData, isOffline, tools, icon, api, refresh, n
       $('#historyPrev').disabled = result.page <= 1; $('#historyNext').disabled = result.page >= result.pages;
     } catch (error) { if (sequence === historySequence) { $('#historyStatus').textContent = error.message; $('#historyResults').replaceChildren(); } }
   }
-  $('#openChatHistory').onclick = () => { $('#chatHistoryDialog').showModal(); loadHistory(); };
+  $('#openChatHistory').onclick = () => { $('#historySession').innerHTML = '<option value="">所有会话</option>' + (getData()?.ai?.sessions || []).map(row => `<option value="${row.id}">${esc(row.title)}${row.archived ? '（已归档）' : ''}</option>`).join(''); $('#chatHistoryDialog').showModal(); loadHistory(); };
   $('#historySearchForm').onsubmit = event => { event.preventDefault(); loadHistory(); };
   $('#historyPrev').onclick = () => loadHistory(historyPage - 1); $('#historyNext').onclick = () => loadHistory(historyPage + 1);
   $('#historyResults').addEventListener('click', async event => { const button = event.target.closest('[data-copy-history]'); if (!button) return; try { await navigator.clipboard.writeText(historyRows[Number(button.dataset.copyHistory)].content); button.textContent = '已复制'; } catch { $('#historyStatus').textContent = '无法访问剪贴板，可直接选择文字复制。'; } });
