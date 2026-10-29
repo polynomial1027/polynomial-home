@@ -441,6 +441,7 @@ async function api(req, res, url) {
   }
   if (backups.busy && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !url.pathname.startsWith('/api/admin/operations/')) return json(res, 503, { error: '正在创建或验证备份，请稍后重试' });
   if (await aiApi(req, res, url)) return;
+  if (await genshinLab(req, res, url)) return;
   if (await operationsApi(req, res, url)) return;
   if (url.pathname === '/api/health' && req.method === 'GET') return json(res, 200, { ok: true, version: require('./package.json').version });
   const clientDeliveryMatch = url.pathname.match(/^\/api\/client\/delivery\/(Polynomial-[A-Za-z0-9_.-]+)$/);
@@ -1243,6 +1244,12 @@ async function proxyNotebookHttp(req, res) {
 
 function staticFile(req, res, url) {
   const clean = url.pathname === '/' ? '/index.html' : url.pathname;
+  let decoded; try { decoded = decodeURIComponent(url.pathname); } catch { return json(res, 400, { error: '无效路径' }); }
+  const normalized = path.posix.normalize(decoded.replace(/\\/g, '/'));
+  if (normalized === '/labs' || normalized.startsWith('/labs/')) {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!requireUser(req, res, 'admin')) return;
+  }
   const viewer=currentUser(req);if(accountPolicy.isGuest(viewer)&&['/chat.html','/games/go.html','/learning.html','/python.html','/admin.html','/ai-records.html'].includes(clean)){res.writeHead(302,{Location:'/app.html#home','Cache-Control':'no-store'});return res.end();}
   const calculatorRoot = '/genshin-calculator';
   const isCalculatorPath = clean === calculatorRoot || clean.startsWith(`${calculatorRoot}/`);
@@ -1256,7 +1263,7 @@ function staticFile(req, res, url) {
     return res.end();
   }
   if (clean === '/ai-records.html' && currentUser(req)?.role !== 'admin') { res.writeHead(302, { Location: currentUser(req) ? '/workspace.html' : '/login.html?next=%2Fai-records.html', 'Cache-Control': 'no-store' }); return res.end(); }
-  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|ai-records|drive|learning|python|workspace|app|download|offline|privacy)\.html$/.test(clean) || ['/app.webmanifest', '/app-sw.js'].includes(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath;
+  const isPublicPath = /^\/(?:index|announcements|projects|games|login|recover-password|chat|admin|ai-records|drive|learning|python|workspace|app|download|offline|privacy)\.html$/.test(clean) || ['/app.webmanifest', '/app-sw.js'].includes(clean) || clean.startsWith('/assets/') || clean.startsWith('/games/') || isCalculatorPath || normalized === '/labs' || normalized.startsWith('/labs/');
   if (!isPublicPath) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
   const target = path.resolve(publicDir, `.${clean}`);
   if (!target.startsWith(publicDir)) { res.writeHead(403); return res.end('Forbidden'); }
@@ -1266,7 +1273,7 @@ function staticFile(req, res, url) {
     fs.readFile(file, (readErr, data) => {
       if (readErr) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404 Not Found'); }
       const etag='"'+crypto.createHash('sha256').update(data).digest('base64url')+'"';
-      const headers={'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache','ETag':etag,'Vary':'Accept-Encoding','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin'};
+      const headers={'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':normalized.startsWith('/labs')?'private, no-store':'no-cache','ETag':etag,'Vary':'Accept-Encoding','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin'};
       if(req.headers['if-none-match']===etag){res.writeHead(304,headers);return res.end();}
       if(data.length>1024&&/\.(?:js|css|html|json|svg)$/.test(file)&&/\bgzip\b/.test(req.headers['accept-encoding']||'')){
         return require('node:zlib').gzip(data,(error,compressed)=>{if(error){res.writeHead(200,headers);return res.end(data);}res.writeHead(200,{...headers,'Content-Encoding':'gzip'});res.end(compressed);});
@@ -1287,6 +1294,7 @@ const scheduler = new JobScheduler({ state, save, model: assistantModel, audit: 
   review: { ready: () => Boolean(assistantKey && state.settings.assistantEnabled && state.users.some(user => user.active && user.role === 'admin')), run: async ({ manual, user }) => performMaintenanceReview(manual && user || state.users.find(user => user.active && user.role === 'admin'), manual ? 'manual' : 'auto') }
 } });
 const aiApi = createAiApi({ state, save, requireUser, allowed, body, json });
+const genshinLab = require('./lib/genshin-lab').createGenshinLab({ directory: dataDir, state, save, requireUser, body, json, key: assistantKey, model: assistantModel });
 const operationsApi = createOperationsApi({ state, save, json, body, requireUser, cookies, verifyPassword, hashPassword, appendAudit, scheduler, backups, closeSession: session => {
   closeNotebookSockets(session.userId, session.token);
   for (const hub of [wss, goWss]) hub.clients.forEach(client => { if (client.sessionToken === session.token) client.close(4003, 'session revoked'); });

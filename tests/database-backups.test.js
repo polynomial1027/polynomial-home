@@ -23,12 +23,14 @@ test('backup restores the actual database and shared files and detects corruptio
   try {
     db.write({ users: [{ id: 'admin' }], settings: {}, chats: [] });
     fs.mkdirSync(path.join(dir, 'drive')); fs.writeFileSync(path.join(dir, 'drive', 'file'), 'real file bytes');
-    const row = await service.create(); assert.ok(row.verifiedAt); assert.equal(row.fileCount, 2);
+    fs.writeFileSync(path.join(dir, 'genshin-lab.json'), JSON.stringify({ budget: { usedCalls: 6 }, documents: [{ title: '测试资料' }] }));
+    const row = await service.create(); assert.ok(row.verifiedAt); assert.equal(row.fileCount, 3);
     assert.equal(service.list().length, 1);
     const destination = path.join(dir, 'restore'); fs.mkdirSync(destination);
     await extractVerified(path.join(service.directory, `${row.id}.tar.gz`), row.sha256, destination);
     const restored = new StateDatabase(destination); assert.equal(restored.read().users[0].id, 'admin'); restored.close();
     assert.equal(fs.readFileSync(path.join(destination, 'drive', 'file'), 'utf8'), 'real file bytes');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(destination, 'genshin-lab.json'))).budget.usedCalls, 6);
     fs.appendFileSync(path.join(service.directory, `${row.id}.tar.gz`), 'corrupt');
     await assert.rejects(service.verify(row.id), /校验失败/); assert.equal(service.busy, false);
   } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); }

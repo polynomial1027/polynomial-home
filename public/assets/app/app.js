@@ -32,7 +32,7 @@
   const storage = { get(key) { try { return localStorage.getItem(key); } catch { return null; } }, set(key, value) { try { localStorage.setItem(key, value); } catch {} } };
   let offline = false;
   let data, admin, butler, busy = false, refreshing = false, activePage, editingTask = null, editingTaskVersion = null, selected = day(new Date()), month = selected.slice(0, 7), filter = 'open', pendingMessage = '', noticeTimer, chatSignature = '', confirmation;
-  const pageNames = { home: '总览', assistant: '智能助手', calendar: '计划与日历', tools: '常用工具', control: '服务器管理', account: '账号与偏好' };
+  const pageNames = { home: '总览', assistant: '智能助手', calendar: '计划与日历', tools: '常用工具', labs: '测试功能区', control: '服务器管理', account: '账号与偏好' };
   const toolDefinitions = [
     ['accessAssistant', 'spark', 'AI 工具箱', '多会话、文本摘要、翻译与资料分析', '#assistant'],
     ['driveEnabled', 'drive', '文件网盘', '个人文件与公共共享资源', '/drive.html'],
@@ -75,8 +75,8 @@
   }
   function route(scroll = true) {
     let page = location.hash.slice(1) || 'home'; if (!Object.hasOwn(pageNames, page)) page = 'home';
-    if (page === 'control' && data && data.user.role !== 'admin') page = 'home';
-    document.querySelectorAll('[data-view]').forEach(view => { view.hidden = view.dataset.view !== page || (view.dataset.view === 'control' && data?.user.role !== 'admin'); });
+    if (['control', 'labs'].includes(page) && data && data.user.role !== 'admin') page = 'home';
+    document.querySelectorAll('[data-view]').forEach(view => { view.hidden = view.dataset.view !== page || (['control', 'labs'].includes(view.dataset.view) && data?.user.role !== 'admin'); });
     document.querySelectorAll('.app-nav [data-page]').forEach(link => { const current = link.dataset.page === page; link.classList.toggle('active', current); if (current) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); });
     $('#currentPage').textContent = pageNames[page]; document.title = `${pageNames[page]} · Polynomial`;
     const changed = page !== activePage;
@@ -301,7 +301,7 @@
   $('#appLogout').onclick = action(async () => { await window.PolynomialReminderUI?.logout().catch(() => {}); aiWorkspace.clearDrafts(); window.PolynomialCalendarCache?.clear(); offline = false; await api('/api/logout', { method: 'POST' }); location.href = '/login.html?next=%2Fapp.html'; });
   function renderCommands() {
     const query = $('#commandQuery').value.trim().toLowerCase();
-    const pages = Object.entries(pageNames).filter(([name]) => name !== 'control' || data?.user.role === 'admin').map(([name, title]) => [null, name === 'assistant' ? 'spark' : name === 'control' ? 'shield' : name === 'account' ? 'user' : name, title, '应用页面', `#${name}`]);
+    const pages = Object.entries(pageNames).filter(([name]) => !['control', 'labs'].includes(name) || data?.user.role === 'admin').map(([name, title]) => [null, name === 'assistant' ? 'spark' : name === 'control' ? 'shield' : name === 'account' ? 'user' : name, title, '应用页面', `#${name}`]);
     const aliases = { '#calendar': '日程 安排 提醒 日期', '#assistant': 'AI 人工智能 DeepSeek', '#account': '头像 昵称 资料 设置', '/chat.html': '消息 聊天', '/drive.html': '文件 网盘' };
     const unique = [...new Map([...pages, ...tools()].map(entry => [entry[4], entry])).values()].filter(entry => `${entry[2]} ${entry[3]} ${aliases[entry[4]] || ''}`.toLowerCase().includes(query));
     const taskResults = (data?.planner || []).filter(item => !item.done && (!query || item.title.toLowerCase().includes(query))).slice(0, 8);
