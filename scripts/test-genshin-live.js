@@ -30,7 +30,8 @@ async function run() {
   const report = { startedAt: new Date().toISOString(), base, initialBudget: initial.value.budget, cases: [], realProvider: true };
   const persist = () => fs.writeFileSync(output, JSON.stringify(report, null, 2), { mode: 0o600 });
   persist();
-  for (const item of cases) {
+  const selected = process.env.GENSHIN_TEST_CASES ? new Set(process.env.GENSHIN_TEST_CASES.split(',')) : null;
+  for (const item of cases.filter(c => !selected || selected.has(c.id))) {
     const { value, status } = await call('ask', { question: item.question, search: item.search, ...(item.calculation ? { calculation: item.calculation } : {}) });
     const row = { id: item.id, question: item.question, expected: item.expected, input: item.calculation || null, httpStatus: status, actual: value, evaluation: status === 200 ? evaluate(item, value) : { pass: false, error: value.error } };
     report.cases.push(row); persist(); console.log(`${item.id}: HTTP ${status}, ${row.evaluation.pass ? '初筛通过' : '需复核'}`);

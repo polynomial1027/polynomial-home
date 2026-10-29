@@ -56,5 +56,5 @@
     const r = await api('calculate', { before: panel('before'), after: panel('after') });
     $('#calculation').textContent = `期望伤害：${r.before.expected.toFixed(3)} → ${r.after.expected.toFixed(3)}\n提升：${r.improvement === null ? '基准为零，无法计算百分比' : (100 * r.improvement).toFixed(3) + '%'}\n\n${r.formula}\n\n${r.scope}\n\n完整输入与乘区：\n${JSON.stringify({ before: r.before, after: r.after }, null, 2)}`; notice('服务器计算完成，没有调用 AI。');
   });
-  refresh().then(s => notice(!s.enabled || !s.configured ? '现有 AI 服务未开启或未配置。资料导入与服务器计算仍可用。' : s.exhausted ? '测试总预算已到上限，需你明确提高后继续。' : '已连接现有 AI 配置。当前尚未验证真实联网请求，所有调用受测试总预算限制。')).catch(e => notice(e.message + '；本功能仅对已登录管理员开放。'));
+  refresh().then(s => notice(!s.enabled || !s.configured ? '现有 AI 服务未开启或未配置。资料导入与服务器计算仍可用。' : s.exhausted ? '测试总预算已到上限，需你明确提高后继续。' : '已连接现有 AI 配置。所有调用受独立10万token总预算限制，不限制次数；联网结果以实际返回的白名单正文为准。')).catch(e => notice(e.message + '；本功能仅对已登录管理员开放。'));
 })();
