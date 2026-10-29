@@ -37,8 +37,8 @@ test('every lab API requires admin; local calculator never calls provider', asyn
   assert.equal(calls, 0);
 });
 test('requests have no count cap; token cap survives restart and needs explicit increase', async t => {
-  let calls = 0; const f = fixture(t, { fetcher: async () => { calls++; throw new Error('simulated provider failure'); } });
-  for (let i = 0; i < 8; i++) assert.equal((await f.call('ask', { question: '元素附着', search: true })).status, 400);
+  let calls = 0; const f = fixture(t, { fetcher: async () => { calls++; throw new Error('simulated provider failure'); }, complete: async () => ({content: JSON.stringify({claims:[],missing:['需要具体技能']}),tokens:1}) });
+  for (let i = 0; i < 8; i++) assert.equal((await f.call('ask', { question: '元素附着', search: true })).status, 200);
   assert.equal(calls, 8);
   const file = path.join(f.directory, 'genshin-lab.json'), data = JSON.parse(fs.readFileSync(file));
   data.budget.usedTokens = 100000; fs.writeFileSync(file, JSON.stringify(data)); f.restart();
@@ -46,7 +46,7 @@ test('requests have no count cap; token cap survives restart and needs explicit 
   assert.equal(stopped.status, 429); assert.equal(calls, 8);
   const status = (await f.call('status')).data;
   assert.equal(status.calls.filter(r => r.status === 'failed').length, 8);
-  assert.equal(status.budget.usedCalls, 8); assert.equal(status.budget.maxCalls, undefined);
+  assert.equal(status.budget.usedCalls, 16); assert.equal(status.budget.maxCalls, undefined);
   assert.equal((await f.call('budget', { maxTokens: 110000 }, 'admin', 'PATCH')).status, 400);
   assert.equal((await f.call('budget', { maxTokens: 110000, confirm: '提高测试上限' }, 'admin', 'PATCH')).status, 200);
   await f.call('ask', { question: '元素附着', search: true }); assert.equal(calls, 9);
@@ -118,4 +118,34 @@ test('server evaluation can reuse an existing admin session only against loopbac
   assert.throws(() => localAdminCookie('http://127.0.0.1:3000', directory), /登录/);
   const expiresAt = new Date(Date.now() + 60000).toISOString(); db.write({ users: [{ id: 'admin', active: true, role: 'admin' }], sessions: [{ token: 'valid-test', userId: 'admin', expiresAt }] });
   assert.equal(localAdminCookie('http://127.0.0.1:3000', directory), 'session=valid-test'); db.close();
+});
+test('simple conversational questions need no form, retain private follow-up context and calculate explicit ATK ratio', async t => {
+  let turn = 0;
+  const f = fixture(t, { complete: async ({messages}) => {
+    const input = JSON.parse(messages[1].content);
+    if (turn++ === 0) {
+      assert.deepEqual(input.history, []);
+      assert.match(input.sources.find(s => s.id === 'server-ratio').content, /10.000000%/);
+    } else assert.equal(input.history[0].content, '攻击力从2000到2200提升多少？');
+    const source = input.sources.find(s => s.id === 'server-ratio') || input.sources[0];
+    return { content: JSON.stringify({claims:[{text:'在其他乘区不变的攻击力倍率伤害下，变化10%。',sourceId:source.id,quote:source.content.slice(0,90)}],missing:[]}),tokens:50 };
+  } });
+  assert.equal((await f.call('ask',{question:'攻击力从2000到2200提升多少？',search:false})).status,200);
+  assert.equal((await f.call('ask',{question:'为什么？',search:false})).status,200);
+  f.restart(); assert.equal((await f.call('status')).data.conversation.length,4);
+  const {fromQuestion}=require('../lib/genshin-chat-math');
+  assert.equal(fromQuestion('基础攻击力从2000到2200'),null);
+  assert.equal(fromQuestion('攻击力从20%到30%'),null);
+});
+test('conversation history is isolated between administrators', async t => {
+  let active = 'admin-one';
+  const f = fixture(t, { requireUser: () => ({id:active,role:'admin'}), complete: async () => ({content:JSON.stringify({claims:[],missing:['请说明具体技能']}),tokens:20}) });
+  await f.call('ask',{question:'第一个管理员的问题'});
+  assert.equal((await f.call('status')).data.conversation.length,2);
+  active = 'admin-two';
+  assert.deepEqual((await f.call('status')).data.conversation,[]);
+  await f.call('ask',{question:'第二个管理员的问题'});
+  assert.equal((await f.call('status')).data.conversation[0].content,'第二个管理员的问题');
+  active = 'admin-one';
+  assert.equal((await f.call('status')).data.conversation[0].content,'第一个管理员的问题');
 });
