@@ -58,3 +58,7 @@ Chat 同时受原站全站/账号 token 与请求上限限制，保留原有 AI 
 测试使用同一份累计100,000 token账本；遇到HTTP错误或额度不足立即停止，不重试，不自动增加上限。
 需要以管理员会话设置 `GENSHIN_TEST_COOKIE`（不应输出或提交此值）；`GENSHIN_TEST_BASE` 指定服务地址，`GENSHIN_TEST_REPORT` 指定报告路径。
 无真实API测试报告时，不能将模拟测试结果标为真实模型准确率。
+
+服务器上也可执行 `POLYNOMIAL_DATA_DIR=/var/lib/polynomial-server node scripts/test-genshin-live.js --use-local-admin-session`。
+此显式选项只读数据库中的有效管理员会话，在回环地址访问原有鉴权接口；不会创建会话、修改权限或显示凭据。
+需要管理员此前已在网站登录。报告默认保存 `/tmp/genshin-live-report.json`，含实际回答与独立预期，全部真实调用走线上预算与用量账本。

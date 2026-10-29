@@ -108,3 +108,14 @@ test('token-only migration preserves existing usage and removes legacy request c
   assert.equal(s.budget.maxTokens, 100000); assert.equal(s.budget.usedTokens, 1000); assert.equal(s.budget.usedCalls, 6); assert.equal(s.budget.maxCalls, undefined); assert.equal(s.exhausted, false);
   assert.match(s.calls[0].reason, /用户授权/);
 });
+test('server evaluation can reuse an existing admin session only against loopback and never creates access', t => {
+  const { localAdminCookie } = require('../scripts/test-genshin-live');
+  assert.throws(() => localAdminCookie('https://evil.test', '/missing'), /回环/);
+  assert.throws(() => localAdminCookie('http://127.0.0.1.evil.test', '/missing'), /回环/);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'genshin-session-test-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { StateDatabase } = require('../lib/database'); const db = new StateDatabase(directory);
+  db.write({ users: [{ id: 'admin', active: true, role: 'admin' }], sessions: [{ token: 'expired', userId: 'admin', expiresAt: '2000-01-01' }] });
+  assert.throws(() => localAdminCookie('http://127.0.0.1:3000', directory), /登录/);
+  const expiresAt = new Date(Date.now() + 60000).toISOString(); db.write({ users: [{ id: 'admin', active: true, role: 'admin' }], sessions: [{ token: 'valid-test', userId: 'admin', expiresAt }] });
+  assert.equal(localAdminCookie('http://127.0.0.1:3000', directory), 'session=valid-test'); db.close();
+});

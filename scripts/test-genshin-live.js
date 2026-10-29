@@ -2,9 +2,22 @@
 // Authentication is provided in GENSHIN_TEST_COOKIE; never print credentials.
 const fs = require('node:fs');
 const { cases, evaluate } = require('../lib/genshin-benchmark');
+function localAdminCookie(base, directory) {
+  const u = new URL(base);
+  if (u.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname)) throw new Error('自动使用本机管理员会话只允许HTTP回环地址');
+  const path = require('node:path'), { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(path.join(directory, 'store.sqlite'), { readOnly: true });
+  try {
+    const read = name => db.prepare('SELECT payload FROM records WHERE collection=? ORDER BY position').all(name).map(row => JSON.parse(row.payload));
+    const admins = new Set(read('users').filter(u => u.active && u.role === 'admin').map(u => u.id));
+    const session = read('sessions').find(s => admins.has(s.userId) && new Date(s.expiresAt).getTime() > Date.now());
+    if (!session) throw new Error('没有有效的管理员登录会话；请先在网站登录管理员后重试');
+    return 'session=' + encodeURIComponent(session.token);
+  } finally { db.close(); }
+}
 async function run() {
   const base = process.env.GENSHIN_TEST_BASE || 'http://127.0.0.1:3000';
-  const cookie = process.env.GENSHIN_TEST_COOKIE;
+  const cookie = process.argv.includes('--use-local-admin-session') ? localAdminCookie(base, process.env.POLYNOMIAL_DATA_DIR || require('node:path').join(__dirname, '..', 'data')) : process.env.GENSHIN_TEST_COOKIE;
   if (!cookie) throw new Error('需要管理员登录会话 GENSHIN_TEST_COOKIE；没有调用任何模型');
   const output = process.env.GENSHIN_TEST_REPORT || '/tmp/genshin-live-report.json';
   const call = async (route, data) => {
@@ -26,4 +39,5 @@ async function run() {
   const final = await call('status'); report.finalBudget = final.value.budget; report.finishedAt = new Date().toISOString(); persist();
   console.log(JSON.stringify({ report: output, completed: report.cases.length, passedInitialScreen: report.cases.filter(x => x.evaluation.pass).length, budget: report.finalBudget }));
 }
-run().catch(error => { console.error(error.message); process.exitCode = 1; });
+if (require.main === module) run().catch(error => { console.error(error.message); process.exitCode = 1; });
+module.exports = { localAdminCookie };
