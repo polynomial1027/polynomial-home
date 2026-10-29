@@ -96,7 +96,7 @@ test('all numeric benchmark examples match independent worked answers', () => {
   const { cases, evaluate } = require('../lib/genshin-benchmark');
   for (const row of cases.filter(c => c.type === 'numeric')) {
     const calculation = math.compare(row.calculation);
-    assert.equal(evaluate(row, { calculation, claims: [{ sourceId: 'server-calculation' }] }).pass, true, row.id);
+    assert.equal(evaluate(row, { calculation, claims: [{ sourceId: 'server-calculation', text: String(row.expected.after) }] }).pass, true, row.id);
     assert.equal(evaluate(row, { calculation, claims: [] }).pass, false, '正确的服务器结果不能冒充模型已引用计算');
   }
 });

@@ -29,6 +29,17 @@ test('failed exchange retains reservation because upstream may bill it', () => {
   assert.equal(assistant.usage(state, 'alice').dailyRequests, 1);
 });
 
+test('explicit independent lab budget retains audit but cannot consume or change ordinary assistant caps', () => {
+  const state = { settings, assistantUsage: [] }, save = () => {}, user = { id: 'alice' };
+  assert.throws(() => assistant.reserve(state, save, user, 1000), /上限/);
+  const record = assistant.reserve(state, save, user, 1000, null, { independentBudget: true });
+  assert.equal(record.independentBudget, true);
+  assert.equal(assistant.usage(state).dailyTokens, 1000);
+  assert.equal(assistant.usage(state, null, new Date(), true).dailyTokens, 0);
+  assistant.reserve(state, save, user, 70);
+  assert.throws(() => assistant.reserve(state, save, user, 1), /上限/);
+});
+
 test('administrator settings reject invalid limits', () => {
   assert.throws(() => assistant.validateSettings({ assistantMaxOutputTokens: 0 }));
   assert.throws(() => assistant.validateUserLimits({ dailyTokens: -1 }));
