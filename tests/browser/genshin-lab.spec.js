@@ -14,7 +14,18 @@ test('admin can open independent lab, import evidence, ask with mock API and cal
   await login(page);
   await page.goto('/'); await expect(page.locator('#homeLabs')).toBeVisible();
   await page.goto('/app.html#labs'); await expect(page.locator('[data-view="labs"]')).toBeVisible();
-  await page.goto('/labs/genshin.html'); await expect(page.locator('#surface')).toBeVisible();
+  if (await page.locator('#briefDialog').isVisible()) await page.getByRole('button', { name: '关闭每日回顾' }).click();
+  // Android WebView does not support additional windows. Exercise the actual
+  // launch control in the same page instead of bypassing it with goto().
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => { window.open = () => null; });
+  const launch = page.getByRole('link', { name: '打开原神 AI' });
+  await expect(launch).toBeVisible(); await expect(launch).not.toHaveAttribute('target', '_blank');
+  const paragraphs = page.locator('.lab-launch-card p');
+  const top = await paragraphs.nth(0).boundingBox(), bottom = await paragraphs.nth(1).boundingBox(), button = await launch.boundingBox();
+  expect(top.y + top.height).toBeLessThanOrEqual(bottom.y); expect(bottom.y + bottom.height).toBeLessThanOrEqual(button.y);
+  await page.screenshot({ path: '/tmp/polynomial-genshin-launch-mobile.png', fullPage: true });
+  await launch.click(); await expect(page).toHaveURL(/\/labs\/genshin\.html$/); await expect(page.locator('#surface')).toBeVisible();
   const response = await page.request.get('/labs/genshin.html'); expect(response.headers()['cache-control']).toContain('no-store');
   await page.getByText('导入手册或数据表', { exact: true }).click();
   await page.locator('#docTitle').fill('浏览器测试手册'); await page.locator('#docVersion').fill('仅模拟测试'); await page.locator('#docContent').fill('测试资料：攻击力、增伤、暴击、防御与抗性共同影响伤害。');
